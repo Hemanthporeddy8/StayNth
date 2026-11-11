@@ -414,17 +414,40 @@ export function createSeedListings(): PropertyListing[] {
 
 const LISTINGS_KEY = "draftline.properties.v1";
 const REQUESTS_KEY = "draftline.property-requests.v1";
+const MY_LISTINGS_KEY = "draftline.my-listing-ids.v1";
+
+export function getMyListingIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(MY_LISTINGS_KEY);
+    return new Set(raw ? JSON.parse(raw) : ["riverside-loft"]);
+  } catch {
+    return new Set(["riverside-loft"]);
+  }
+}
+
+export function addMyListingId(id: string) {
+  try {
+    const set = getMyListingIds();
+    set.add(id);
+    localStorage.setItem(MY_LISTINGS_KEY, JSON.stringify([...set]));
+  } catch {
+    // ignore
+  }
+}
 
 export function loadListings(): PropertyListing[] {
   try {
+    const myIds = getMyListingIds();
     const raw = localStorage.getItem(LISTINGS_KEY);
-    if (!raw) return createSeedListings();
+    if (!raw) return createSeedListings().map((item) => ({ ...item, mine: myIds.has(item.id) }));
     const data = JSON.parse(raw) as PropertyListing[];
-    if (!Array.isArray(data) || !data.length || !data[0]?.plan?.rooms) return createSeedListings();
-    // Merge newly introduced sample inventory without overwriting local edits.
+    if (!Array.isArray(data) || !data.length || !data[0]?.plan?.rooms) {
+      return createSeedListings().map((item) => ({ ...item, mine: myIds.has(item.id) }));
+    }
     const seeds = createSeedListings();
     const existing = new Set(data.map((item) => item.id));
-    return [...data, ...seeds.filter((item) => !existing.has(item.id))];
+    const merged = [...data, ...seeds.filter((item) => !existing.has(item.id))];
+    return merged.map((item) => ({ ...item, mine: myIds.has(item.id) }));
   } catch {
     return createSeedListings();
   }
@@ -452,3 +475,94 @@ export function saveRequests(requests: PropertyRequest[]) {
 export function newRequestId() {
   return uid("request").toUpperCase();
 }
+
+// Cloudflare D1 Remote Database Sync
+export async function fetchRemoteListings(): Promise<PropertyListing[] | null> {
+  try {
+    const res = await fetch("/api/properties?all=true");
+    if (!res.ok) return null;
+    const remote = (await res.json()) as PropertyListing[];
+    if (!Array.isArray(remote)) return null;
+    const myIds = getMyListingIds();
+    return remote.map((item) => ({
+      ...item,
+      mine: myIds.has(item.id) || item.mine,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveRemoteListing(listing: PropertyListing): Promise<boolean> {
+  try {
+    addMyListingId(listing.id);
+    const res = await fetch("/api/properties", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(listing),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteRemoteListing(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/properties/${id}`, { method: "DELETE" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function patchRemoteListing(id: string, patch: { published?: boolean; verification?: string }): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/properties/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchRemoteRequests(): Promise<PropertyRequest[] | null> {
+  try {
+    const res = await fetch("/api/requests");
+    if (!res.ok) return null;
+    const remote = (await res.json()) as PropertyRequest[];
+    return Array.isArray(remote) ? remote : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveRemoteRequest(request: PropertyRequest): Promise<boolean> {
+  try {
+    const res = await fetch("/api/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function patchRemoteRequest(id: string, status: PropertyRequest["status"]): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/requests/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+

@@ -21,6 +21,7 @@
     "three": "^0.187.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261110.1",
     "@tailwindcss/vite": "4.1.17",
     "@types/node": "22.19.17",
     "@types/react": "19.2.7",

@@ -38,6 +38,13 @@ import {
   loadRequests,
   saveListings,
   saveRequests,
+  fetchRemoteListings,
+  saveRemoteListing,
+  deleteRemoteListing,
+  patchRemoteListing,
+  fetchRemoteRequests,
+  saveRemoteRequest,
+  patchRemoteRequest,
   type ListingMode,
   type PropertyListing,
   type PropertyRequest,
@@ -116,6 +123,47 @@ export function PropertiesApp({
   const [selected, setSelected] = useState<{ id: string; view: "photos" | "3d" } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"syncing" | "synced" | "local">("syncing");
+
+  // Sync with Cloudflare D1 on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function syncCloud() {
+      try {
+        const [remoteProperties, remoteRequests] = await Promise.all([
+          fetchRemoteListings(),
+          fetchRemoteRequests(),
+        ]);
+        if (cancelled) return;
+
+        if (remoteProperties !== null) {
+          if (remoteProperties.length > 0) {
+            setListings(remoteProperties);
+          } else {
+            const seeds = loadListings();
+            setListings(seeds);
+            for (const item of seeds) {
+              await saveRemoteListing(item);
+            }
+          }
+          setSyncStatus("synced");
+        } else {
+          setSyncStatus("local");
+        }
+
+        if (remoteRequests !== null && remoteRequests.length > 0) {
+          setRequests(remoteRequests);
+        }
+      } catch {
+        if (!cancelled) setSyncStatus("local");
+      }
+    }
+
+    syncCloud();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -177,6 +225,7 @@ export function PropertiesApp({
 
   const addRequest = (request: PropertyRequest) => {
     setRequests((current) => [request, ...current]);
+    saveRemoteRequest(request);
   };
 
   const toggleFavorite = (id: string) => {
@@ -195,6 +244,7 @@ export function PropertiesApp({
       }
     }
     setRequests((current) => current.map((request) => request.id === id ? { ...request, status } : request));
+    patchRemoteRequest(id, status);
     setNotice(`Request ${status}`);
   };
 
@@ -237,8 +287,9 @@ export function PropertiesApp({
           </nav>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden rounded-full border border-line bg-paper px-2.5 py-1 font-mono text-[8px] uppercase tracking-wide text-ink-faint xl:block">
-            {storageWarning ? "Browser storage full" : "Local marketplace · saved on this device"}
+          <span className="hidden rounded-full border border-line bg-paper px-2.5 py-1 font-mono text-[8px] uppercase tracking-wide text-ink-faint xl:flex items-center gap-1.5">
+            <span className={cn("h-1.5 w-1.5 rounded-full", syncStatus === "synced" ? "bg-emerald-500 animate-pulse" : syncStatus === "syncing" ? "bg-amber-400" : "bg-ink-faint")} />
+            {syncStatus === "synced" ? "Cloudflare D1 Cloud Sync" : syncStatus === "syncing" ? "Connecting to D1..." : "Local Storage"}
           </span>
           <button onClick={onBack} className="hidden items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-medium text-ink-soft hover:bg-paper-deep md:flex">
             <ArrowLeft className="h-3.5 w-3.5" /> Studio
@@ -340,12 +391,15 @@ export function PropertiesApp({
                     onFavorite={() => toggleFavorite(listing.id)}
                     onOpen={(view) => setSelected({ id: listing.id, view })}
                     onToggle={() => {
-                      setListings((current) => current.map((item) => item.id === listing.id ? { ...item, published: !item.published } : item));
-                      setNotice(listing.published ? "Listing unpublished" : "Listing published");
+                      const nextPublished = !listing.published;
+                      setListings((current) => current.map((item) => item.id === listing.id ? { ...item, published: nextPublished } : item));
+                      patchRemoteListing(listing.id, { published: nextPublished });
+                      setNotice(nextPublished ? "Listing published" : "Listing unpublished");
                     }}
                     onDelete={() => {
                       if (!window.confirm(`Delete “${listing.title}” from this browser?`)) return;
                       setListings((current) => current.filter((item) => item.id !== listing.id));
+                      deleteRemoteListing(listing.id);
                       setNotice("Listing deleted");
                     }}
                   />
@@ -377,6 +431,7 @@ export function PropertiesApp({
           onCreate={(listing) => {
             clearDraft();
             setListings((current) => [listing, ...current]);
+            saveRemoteListing(listing);
             setListOpen(false);
             setQuery("");
             setType("all");
@@ -386,7 +441,7 @@ export function PropertiesApp({
             setTab("mine");
             // Land on the new property so its 3D walkthrough is the first thing the owner sees.
             setSelected({ id: listing.id, view: "3d" });
-            setNotice("Published — here is your property in 3D");
+            setNotice("Published — saved to Cloudflare D1 & live in 3D");
           }}
         />
       )}
