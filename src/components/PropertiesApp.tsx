@@ -23,6 +23,8 @@ import {
   Star,
   Trash2,
   X,
+  LogIn,
+  LogOut,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { ListPropertyDialog } from "@/components/ListPropertyDialog";
@@ -31,6 +33,8 @@ import { clearDraft, peekDraft } from "@/lib/listingDraft";
 import { PropertyMap } from "@/components/PropertyMap";
 import { CompareDialog } from "@/components/CompareDialog";
 import { WorkspaceDialog, type WorkspaceProfile } from "@/components/WorkspaceDialog";
+import { AuthModal } from "@/components/AuthModal";
+import { fetchCurrentUser, logoutUser, type User } from "@/lib/auth";
 import {
   formatPrice,
   PROPERTY_TYPE_LABEL,
@@ -122,8 +126,17 @@ export function PropertiesApp({
   }, []);
   const [selected, setSelected] = useState<{ id: string; view: "photos" | "3d" } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [storageWarning, setStorageWarning] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"syncing" | "synced" | "local">("syncing");
+
+  // Fetch authenticated user on load
+  useEffect(() => {
+    fetchCurrentUser().then((user) => {
+      if (user) setCurrentUser(user);
+    });
+  }, []);
 
   // Sync with Cloudflare D1 on mount
   useEffect(() => {
@@ -205,7 +218,8 @@ export function PropertiesApp({
   const visible = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const result = listings.filter((listing) => {
-      if (tab === "mine" ? !listing.mine : !listing.published) return false;
+      const isMine = (currentUser && listing.ownerId === currentUser.id) || listing.mine;
+      if (tab === "mine" ? !isMine : !listing.published) return false;
       if (type !== "all" && listing.type !== type) return false;
       if (mode !== "all" && listing.mode !== mode) return false;
       if (bhk !== "all" && (bhk === "4" ? listing.bedrooms < 4 : listing.bedrooms !== Number(bhk))) return false;
@@ -294,7 +308,57 @@ export function PropertiesApp({
           <button onClick={onBack} className="hidden items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-medium text-ink-soft hover:bg-paper-deep md:flex">
             <ArrowLeft className="h-3.5 w-3.5" /> Studio
           </button>
-          <button onClick={() => setWorkspaceOpen(true)} className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 py-2 text-[11px] text-ink-soft hover:bg-paper-deep" title="Local profile and workspace backup"><UserRound className="h-3.5 w-3.5" /><span className="hidden xl:inline">Workspace</span></button>
+
+          {currentUser ? (
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 py-1.5 text-[11px] font-medium text-ink hover:bg-paper-deep transition shadow-sm"
+              >
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[10.5px] font-bold text-white uppercase">
+                  {currentUser.name.charAt(0)}
+                </span>
+                <span className="hidden sm:inline max-w-[90px] truncate">{currentUser.name}</span>
+                <ChevronDown className="h-3 w-3 text-ink-faint" />
+              </button>
+              {userMenuOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-48 rounded-2xl border border-line bg-white p-1.5 shadow-2xl z-50 animate-pop">
+                  <div className="px-3 py-2 border-b border-line-soft">
+                    <p className="text-[12px] font-semibold text-ink truncate">{currentUser.name}</p>
+                    <p className="text-[10px] text-ink-soft truncate">{currentUser.email}</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      setWorkspaceOpen(true);
+                    }}
+                    className="w-full text-left flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-ink-soft hover:bg-paper hover:text-ink transition"
+                  >
+                    <UserRound className="h-3.5 w-3.5" /> Workspace & Backup
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setUserMenuOpen(false);
+                      await logoutUser();
+                      setCurrentUser(null);
+                      setNotice("Signed out successfully");
+                    }}
+                    className="w-full text-left flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition"
+                  >
+                    <LogOut className="h-3.5 w-3.5" /> Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => setAuthModalOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-medium text-ink hover:bg-paper-deep transition shadow-sm"
+            >
+              <LogIn className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Sign In</span>
+            </button>
+          )}
+
           <button onClick={openList} className="flex items-center gap-1.5 rounded-lg bg-ink px-3 py-2 text-[11px] font-medium text-white shadow-sm hover:bg-ink/90">
             <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">List property</span><span className="sm:hidden">List</span>
           </button>
@@ -430,8 +494,14 @@ export function PropertiesApp({
           onDrawInStudio={onDrawInStudio}
           onCreate={(listing) => {
             clearDraft();
-            setListings((current) => [listing, ...current]);
-            saveRemoteListing(listing);
+            const enriched: PropertyListing = {
+              ...listing,
+              ownerId: currentUser?.id,
+              ownerName: currentUser ? currentUser.name : listing.ownerName,
+              mine: true,
+            };
+            setListings((current) => [enriched, ...current]);
+            saveRemoteListing(enriched);
             setListOpen(false);
             setQuery("");
             setType("all");
@@ -497,6 +567,14 @@ export function PropertiesApp({
           }}
         />
       )}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccess={(user) => {
+          setCurrentUser(user);
+          setNotice(`Welcome, ${user.name}!`);
+        }}
+      />
       {notice && (
         <div className="animate-toast fixed bottom-5 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-[11px] font-medium text-white shadow-xl">
           <Check className="h-3.5 w-3.5" /> {notice}

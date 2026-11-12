@@ -1,5 +1,6 @@
 import type { Plan } from "@/types";
 import { generatePlan, uid } from "@/lib/plan";
+import { getStoredToken } from "@/lib/auth";
 
 export type PropertyType =
   | "apartment"
@@ -92,6 +93,7 @@ export interface PropertyListing {
   photos: PropertyPhoto[];
   plan: Plan;
   ownerName: string;
+  ownerId?: string;
   mine: boolean;
   verification?: "unverified" | "pending" | "verified";
   latitude?: number;
@@ -496,9 +498,14 @@ export async function fetchRemoteListings(): Promise<PropertyListing[] | null> {
 export async function saveRemoteListing(listing: PropertyListing): Promise<boolean> {
   try {
     addMyListingId(listing.id);
+    const token = getStoredToken();
     const res = await fetch("/api/properties", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
       body: JSON.stringify(listing),
     });
     return res.ok;
@@ -509,7 +516,12 @@ export async function saveRemoteListing(listing: PropertyListing): Promise<boole
 
 export async function deleteRemoteListing(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/properties/${id}`, { method: "DELETE" });
+    const token = getStoredToken();
+    const res = await fetch(`/api/properties/${id}`, {
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
+    });
     return res.ok;
   } catch {
     return false;
@@ -518,9 +530,14 @@ export async function deleteRemoteListing(id: string): Promise<boolean> {
 
 export async function patchRemoteListing(id: string, patch: { published?: boolean; verification?: string }): Promise<boolean> {
   try {
+    const token = getStoredToken();
     const res = await fetch(`/api/properties/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
       body: JSON.stringify(patch),
     });
     return res.ok;

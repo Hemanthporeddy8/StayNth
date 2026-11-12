@@ -8,23 +8,121 @@ export interface Env {
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Credentials": "true",
 };
 
-function json(data: unknown, status = 200): Response {
+function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json",
       ...CORS_HEADERS,
+      ...headers,
     },
   });
 }
 
+// --- Cryptographic Helpers for PBKDF2 Password Hashing ---
+function uint8ArrayToHex(arr: Uint8Array): string {
+  return Array.from(arr)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function hexToUint8Array(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return bytes;
+}
+
+async function hashPassword(password: string, saltHex?: string): Promise<{ hash: string; salt: string }> {
+  const salt = saltHex ? hexToUint8Array(saltHex) : crypto.getRandomValues(new Uint8Array(16));
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits", "deriveKey"]
+  );
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: salt as any,
+      iterations: 100000,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    true,
+    ["sign"]
+  );
+  const exported = await crypto.subtle.exportKey("raw", key);
+  return {
+    hash: uint8ArrayToHex(new Uint8Array(exported)),
+    salt: uint8ArrayToHex(salt),
+  };
+}
+
+function parseCookies(header: string | null): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!header) return cookies;
+  const parts = header.split(";");
+  for (const part of parts) {
+    const [k, v] = part.trim().split("=");
+    if (k && v) cookies[k] = decodeURIComponent(v);
+  }
+  return cookies;
+}
+
+async function getUserFromRequest(request: Request, db: D1Database): Promise<any | null> {
+  const authHeader = request.headers.get("Authorization");
+  let token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+  if (!token) {
+    const cookies = parseCookies(request.headers.get("Cookie"));
+    token = cookies["staynth_session"] || null;
+  }
+  if (!token) return null;
+
+  const sessionRow = (await db
+    .prepare("SELECT * FROM sessions WHERE id = ? AND expires_at > datetime('now')")
+    .bind(token)
+    .first()) as any;
+  if (!sessionRow) return null;
+
+  const user = (await db
+    .prepare("SELECT id, email, name, role, created_at FROM users WHERE id = ?")
+    .bind(sessionRow.user_id)
+    .first()) as any;
+  return user || null;
+}
+
 async function ensureTables(db: D1Database) {
   await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT DEFAULT 'user',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS properties (
       id TEXT PRIMARY KEY,
+      owner_id TEXT,
       title TEXT NOT NULL,
       type TEXT NOT NULL,
       mode TEXT NOT NULL,
@@ -80,6 +178,7 @@ async function ensureTables(db: D1Database) {
 
     CREATE TABLE IF NOT EXISTS plans (
       id TEXT PRIMARY KEY,
+      user_id TEXT,
       name TEXT NOT NULL,
       plan_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
@@ -91,6 +190,7 @@ async function ensureTables(db: D1Database) {
 function parsePropertyRow(row: any) {
   return {
     id: row.id,
+    ownerId: row.owner_id,
     title: row.title,
     type: row.type,
     mode: row.mode,
@@ -150,6 +250,137 @@ export default {
       try {
         await ensureTables(env.DB);
 
+        // --- AUTHENTICATION ENDPOINTS ---
+
+        // POST /api/auth/register
+        if (url.pathname === "/api/auth/register" && request.method === "POST") {
+          const body = (await request.json()) as any;
+          const email = (body.email || "").trim().toLowerCase();
+          const password = body.password || "";
+          const name = (body.name || "").trim();
+
+          if (!email || !email.includes("@")) {
+            return json({ error: "Please provide a valid email address." }, 400);
+          }
+          if (password.length < 6) {
+            return json({ error: "Password must be at least 6 characters long." }, 400);
+          }
+          if (!name) {
+            return json({ error: "Please enter your name." }, 400);
+          }
+
+          // Check for existing user
+          const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+          if (existing) {
+            return json({ error: "An account with this email already exists. Please sign in." }, 409);
+          }
+
+          const userId = "usr_" + crypto.randomUUID();
+          const { hash, salt } = await hashPassword(password);
+          const now = new Date().toISOString();
+
+          await env.DB.prepare(
+            "INSERT INTO users (id, email, password_hash, salt, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+          )
+            .bind(userId, email, hash, salt, name, "user", now)
+            .run();
+
+          // Create initial session (30 days)
+          const sessionToken = "ses_" + crypto.randomUUID();
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+          await env.DB.prepare(
+            "INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)"
+          )
+            .bind(sessionToken, userId, expiresAt, now)
+            .run();
+
+          const cookieHeader = `staynth_session=${sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`;
+          return json(
+            {
+              success: true,
+              user: { id: userId, email, name, role: "user" },
+              token: sessionToken,
+            },
+            201,
+            { "Set-Cookie": cookieHeader }
+          );
+        }
+
+        // POST /api/auth/login
+        if (url.pathname === "/api/auth/login" && request.method === "POST") {
+          const body = (await request.json()) as any;
+          const email = (body.email || "").trim().toLowerCase();
+          const password = body.password || "";
+
+          if (!email || !password) {
+            return json({ error: "Please enter both email and password." }, 400);
+          }
+
+          const user = (await env.DB.prepare(
+            "SELECT id, email, password_hash, salt, name, role FROM users WHERE email = ?"
+          )
+            .bind(email)
+            .first()) as any;
+
+          if (!user) {
+            return json({ error: "Invalid email or password." }, 401);
+          }
+
+          const { hash } = await hashPassword(password, user.salt);
+          if (hash !== user.password_hash) {
+            return json({ error: "Invalid email or password." }, 401);
+          }
+
+          // Create new session token (30 days)
+          const sessionToken = "ses_" + crypto.randomUUID();
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+          const now = new Date().toISOString();
+
+          await env.DB.prepare(
+            "INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)"
+          )
+            .bind(sessionToken, user.id, expiresAt, now)
+            .run();
+
+          const cookieHeader = `staynth_session=${sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`;
+          return json(
+            {
+              success: true,
+              user: { id: user.id, email: user.email, name: user.name, role: user.role },
+              token: sessionToken,
+            },
+            200,
+            { "Set-Cookie": cookieHeader }
+          );
+        }
+
+        // GET /api/auth/me
+        if (url.pathname === "/api/auth/me" && request.method === "GET") {
+          const user = await getUserFromRequest(request, env.DB);
+          if (user) {
+            return json({ authenticated: true, user });
+          }
+          return json({ authenticated: false, user: null });
+        }
+
+        // POST /api/auth/logout
+        if (url.pathname === "/api/auth/logout" && request.method === "POST") {
+          const authHeader = request.headers.get("Authorization");
+          let token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+          if (!token) {
+            const cookies = parseCookies(request.headers.get("Cookie"));
+            token = cookies["staynth_session"] || null;
+          }
+          if (token) {
+            await env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(token).run();
+          }
+          const clearCookie = `staynth_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+          return json({ success: true }, 200, { "Set-Cookie": clearCookie });
+        }
+
+        // --- PROPERTIES ENDPOINTS ---
+
         // GET /api/properties
         if (url.pathname === "/api/properties" && request.method === "GET") {
           const showAll = url.searchParams.get("all") === "true";
@@ -163,14 +394,19 @@ export default {
 
         // POST /api/properties (Create or Update)
         if (url.pathname === "/api/properties" && request.method === "POST") {
+          const currentUser = await getUserFromRequest(request, env.DB);
           const body = (await request.json()) as any;
+          const ownerId = currentUser ? currentUser.id : body.ownerId || null;
+          const ownerName = currentUser ? currentUser.name : body.ownerName || "Owner";
+
           await env.DB.prepare(
             `INSERT INTO properties (
-              id, title, type, mode, location, price, price_unit, bedrooms, bathrooms, beds, area,
+              id, owner_id, title, type, mode, location, price, price_unit, bedrooms, bathrooms, beds, area,
               description, amenities_json, photos_json, plan_json, owner_name, verification,
               latitude, longitude, inventory_json, floor_plans_json, published, featured, rating, reviews_count, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+              owner_id = COALESCE(excluded.owner_id, properties.owner_id),
               title = excluded.title,
               type = excluded.type,
               mode = excluded.mode,
@@ -197,6 +433,7 @@ export default {
               reviews_count = excluded.reviews_count`
           ).bind(
             body.id,
+            ownerId,
             body.title,
             body.type,
             body.mode,
@@ -211,7 +448,7 @@ export default {
             JSON.stringify(body.amenities || []),
             JSON.stringify(body.photos || []),
             JSON.stringify(body.plan),
-            body.ownerName || "Owner",
+            ownerName,
             body.verification || "verified",
             body.latitude || null,
             body.longitude || null,
@@ -224,7 +461,7 @@ export default {
             body.createdAt || new Date().toISOString()
           ).run();
 
-          return json({ success: true, id: body.id });
+          return json({ success: true, id: body.id, ownerId });
         }
 
         // DELETE /api/properties/:id
@@ -250,6 +487,8 @@ export default {
           }
           return json({ success: true, id });
         }
+
+        // --- REQUESTS ENDPOINTS ---
 
         // GET /api/requests
         if (url.pathname === "/api/requests" && request.method === "GET") {
