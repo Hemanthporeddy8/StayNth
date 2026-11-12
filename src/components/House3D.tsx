@@ -19,7 +19,7 @@ import { clamp, computeWalls, ROOM_COLORS } from "@/lib/plan";
 import { cn } from "@/utils/cn";
 
 type NavigationMode = "orbit" | "walk";
-type DesignStyle = "natural" | "white" | "dark";
+type DesignStyle = "natural" | "white" | "dark" | "warm" | "scandi" | "luxury" | "coastal";
 type LightingPreset = "day" | "sunset" | "night";
 type MaterialMap = Record<string, THREE.Material>;
 
@@ -49,19 +49,28 @@ function worldZ(plan: Plan, y: number) {
 function makeMaterials(style: DesignStyle = "natural"): MaterialMap {
   const standard = (color: string, roughness = 0.8, metalness = 0) =>
     new THREE.MeshStandardMaterial({ color, roughness, metalness });
-  const palette = style === "white"
-    ? { wall: "#fbfbf8", exterior: "#f0f0eb", wood: "#c7b9a4", fabric: "#b8c1bd" }
-    : style === "dark"
-      ? { wall: "#686d68", exterior: "#575e5a", wood: "#73543e", fabric: "#657b72" }
-      : { wall: "#f1ede3", exterior: "#e5dfd2", wood: "#a98258", fabric: "#9faa92" };
+  const palette =
+    style === "white"
+      ? { wall: "#fbfbf8", exterior: "#f0f0eb", wood: "#c7b9a4", darkWood: "#6f523b", fabric: "#b8c1bd", linen: "#ddd3c1", ceiling: "#faf8f2" }
+      : style === "dark"
+      ? { wall: "#686d68", exterior: "#575e5a", wood: "#73543e", darkWood: "#423226", fabric: "#657b72", linen: "#949c98", ceiling: "#5c625e" }
+      : style === "warm"
+      ? { wall: "#fcf6ed", exterior: "#e7d9c6", wood: "#bd7f49", darkWood: "#6e3f1e", fabric: "#c56d4e", linen: "#ebd8c5", ceiling: "#faf4ec" }
+      : style === "scandi"
+      ? { wall: "#f4f7f4", exterior: "#d8e2d7", wood: "#d6be9f", darkWood: "#7d6b53", fabric: "#6b8b72", linen: "#e1ebe0", ceiling: "#f6f9f6" }
+      : style === "luxury"
+      ? { wall: "#262b2e", exterior: "#1d2123", wood: "#5e4231", darkWood: "#332115", fabric: "#b89758", linen: "#d1c3a7", ceiling: "#2e3336" }
+      : style === "coastal"
+      ? { wall: "#eff5f8", exterior: "#d4e3eb", wood: "#a39785", darkWood: "#595247", fabric: "#497793", linen: "#d8e5ec", ceiling: "#f4f8fb" }
+      : { wall: "#f1ede3", exterior: "#e5dfd2", wood: "#a98258", darkWood: "#6f523b", fabric: "#9faa92", linen: "#ddd3c1", ceiling: "#f5f2e9" };
   return {
     wall: standard(palette.wall, 0.92),
     exterior: standard(palette.exterior, 0.94),
-    ceiling: standard("#f5f2e9", 0.96),
+    ceiling: standard(palette.ceiling, 0.96),
     wood: standard(palette.wood, 0.72),
-    darkWood: standard("#6f523b", 0.76),
+    darkWood: standard(palette.darkWood, 0.76),
     fabric: standard(palette.fabric, 0.98),
-    linen: standard("#ddd3c1", 1),
+    linen: standard(palette.linen, 1),
     white: standard("#eeeDE8", 0.72),
     dark: standard("#3e4645", 0.6),
     metal: standard("#9da5a3", 0.35, 0.55),
@@ -825,6 +834,10 @@ export function House3D({ plan, onPlanChange }: { plan: Plan; onPlanChange?: (pl
                 <option value="natural">Natural materials</option>
                 <option value="white">White minimal</option>
                 <option value="dark">Dark contemporary</option>
+                <option value="warm">Warm Terracotta & Oak</option>
+                <option value="scandi">Scandinavian Sage</option>
+                <option value="luxury">Luxury Charcoal & Walnut</option>
+                <option value="coastal">Coastal Blue & Driftwood</option>
               </select>
               <select value={lighting} onChange={(event) => setLighting(event.target.value as LightingPreset)} className="h-7 rounded-md border border-line bg-white px-1.5 text-[9px] text-ink-soft" aria-label="Lighting preset">
                 <option value="day">Daylight</option>

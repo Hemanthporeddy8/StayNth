@@ -525,6 +525,33 @@ export function ListPropertyDialog({
                 <span className="ml-auto flex items-center gap-1 text-moss"><Check className="h-3 w-3" /> 3D included automatically</span>
               </div>
             </div>
+
+            {/* $299 Exact Digital Twin Replica Card */}
+            <div className="mt-3 flex flex-col justify-between gap-2.5 rounded-xl border border-accent/30 bg-gradient-to-r from-amber-50/80 via-orange-50/60 to-amber-50/80 p-3 sm:flex-row sm:items-center">
+              <div className="flex items-start gap-2.5">
+                <div className="rounded-lg bg-accent/15 p-2 text-accent">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-semibold text-ink">Exact 1:1 Digital Twin Replica</span>
+                    <span className="rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold text-white shadow-xs">$299</span>
+                  </div>
+                  <p className="mt-0.5 text-[10.5px] leading-snug text-ink-soft">
+                    Don't have time to draw? Send us your floor plan sketch or photos. Our architectural team will draft an exact 1:1 replica with interactive 3D walk-through for your listing.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  alert("Replica Service ($299):\n\nOur architectural modeling team will contact you at your account email to collect your floor plan sketches, blueprints, or room photos. Your exact 1:1 3D replica will be attached to this listing within 24–48 hours!");
+                }}
+                className="shrink-0 rounded-lg bg-ink px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-ink/85 active:scale-95"
+              >
+                Order Replica ($299)
+              </button>
+            </div>
           </div>
 
           <div className="mt-4">
