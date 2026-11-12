@@ -38,7 +38,13 @@ function hexToUint8Array(hex: string): Uint8Array {
   return bytes;
 }
 
-async function hashPassword(password: string, saltHex?: string): Promise<{ hash: string; salt: string }> {
+const PBKDF2_ITERATIONS = 50000;
+
+async function hashPassword(
+  password: string,
+  saltHex?: string,
+  iterations = PBKDF2_ITERATIONS
+): Promise<{ hash: string; salt: string }> {
   const salt = saltHex ? hexToUint8Array(saltHex) : crypto.getRandomValues(new Uint8Array(16));
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
@@ -52,7 +58,7 @@ async function hashPassword(password: string, saltHex?: string): Promise<{ hash:
     {
       name: "PBKDF2",
       salt: salt as any,
-      iterations: 100000,
+      iterations,
       hash: "SHA-256",
     },
     keyMaterial,
@@ -275,9 +281,18 @@ export default {
             return json({ error: "Invalid email or password." }, 401);
           }
 
-          const { hash } = await hashPassword(password, user.salt);
+          let { hash } = await hashPassword(password, user.salt);
           if (hash !== user.password_hash) {
-            return json({ error: "Invalid email or password." }, 401);
+            // Check if user was registered with legacy 100,000 iterations
+            const legacy = await hashPassword(password, user.salt, 100000);
+            if (legacy.hash === user.password_hash) {
+              // Legacy match found: auto-upgrade password hash in DB to 50,000 iterations
+              await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+                .bind(hash, user.id)
+                .run();
+            } else {
+              return json({ error: "Invalid email or password." }, 401);
+            }
           }
 
           // Create new session token (30 days)
