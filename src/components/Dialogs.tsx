@@ -425,7 +425,7 @@ export function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () 
           </div>
         </div>
         <div className="flex items-center justify-between border-t border-line bg-paper/50 px-5 py-2.5">
-          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-faint">Draftline studio · v1.0</span>
+          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-faint">StayNth studio · v1.0</span>
           <button onClick={onClose} className="rounded-lg bg-ink px-3 py-1.5 text-[11px] font-medium text-white hover:bg-ink/90">
             Got it <Command className="mb-0.5 ml-1 inline h-3 w-3" />
           </button>

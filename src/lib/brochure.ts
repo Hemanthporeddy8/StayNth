@@ -55,7 +55,7 @@ export async function exportPropertyBrochure(listing: PropertyListing) {
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(17);
-  doc.text("DRAFTLINE PROPERTIES", 14, 15);
+  doc.text("STAYNTH PROPERTIES", 14, 15);
   doc.setTextColor(22, 49, 59);
   doc.setFontSize(24);
   doc.text(doc.splitTextToSize(listing.title, 175), 14, 40);
@@ -102,7 +102,7 @@ export async function exportPropertyBrochure(listing: PropertyListing) {
   doc.text(doc.splitTextToSize(listing.amenities.join("  ·  "), 178), 14, 241);
   doc.setFontSize(8);
   doc.setTextColor(140, 145, 140);
-  doc.text("Generated locally by Draftline. This brochure is not a booking confirmation or legal document.", 14, 282);
+  doc.text("Generated locally by StayNth. This brochure is not a booking confirmation or legal document.", 14, 282);
 
   doc.addPage();
   doc.setTextColor(22, 49, 59);

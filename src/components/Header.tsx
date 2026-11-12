@@ -15,6 +15,7 @@ import {
   Building2,
   LogIn,
   LogOut,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { AuthModal } from "@/components/AuthModal";
@@ -43,6 +44,7 @@ interface Props {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  onNewPlan?: () => void;
   onGenerate: () => void;
   onExport: (format: "svg" | "png" | "json") => void;
   onOpenShortcuts: () => void;
@@ -59,6 +61,7 @@ export function Header({
   canRedo,
   onUndo,
   onRedo,
+  onNewPlan,
   onGenerate,
   onExport,
   onOpenShortcuts,
@@ -107,7 +110,7 @@ export function Header({
         <div className="flex items-center gap-2.5">
           <BrandMark />
           <div className="hidden flex-col leading-none sm:flex">
-            <span className="text-[17px] font-semibold tracking-[-0.03em] text-ink">draftline</span>
+            <span className="text-[17px] font-semibold tracking-[-0.03em] text-ink">StayNth</span>
             <span className="mt-0.5 font-mono text-[8px] uppercase tracking-[0.24em] text-ink-faint">floor plan studio</span>
           </div>
         </div>
@@ -186,6 +189,18 @@ export function Header({
           <Building2 className="h-3.5 w-3.5" />
           <span className="hidden md:inline">Properties</span>
         </button>
+
+        {onNewPlan && (
+          <button
+            onClick={onNewPlan}
+            className="group flex items-center gap-1.5 rounded-lg border border-ink/15 bg-white px-2.5 py-2 text-[12px] font-medium text-ink transition hover:border-ink/30 hover:bg-paper-deep sm:px-3"
+            title="Start drawing a new house from scratch"
+          >
+            <Plus className="h-3.5 w-3.5 text-accent transition group-hover:scale-110" />
+            <span className="hidden xs:inline sm:inline">New House</span>
+            <span className="xs:hidden sm:hidden">New</span>
+          </button>
+        )}
 
         <button
           onClick={onGenerate}

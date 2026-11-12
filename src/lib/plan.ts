@@ -595,6 +595,18 @@ export function getDefaultPlan(): Plan {
   return generatePlan(DEFAULT_OPTIONS);
 }
 
+export function createBlankPlan(name = "Untitled House"): Plan {
+  return {
+    name,
+    width: 44,
+    depth: 32,
+    rooms: [],
+    extraWalls: [],
+    openings: [],
+    furniture: [],
+  };
+}
+
 export function nextRoomName(rooms: Room[]): string {
   return `Room ${rooms.length + 1}`;
 }
@@ -609,12 +621,12 @@ export function allFurnitureLabel(plan: Plan): string {
 
 const num = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
-/** Validates and normalizes an uploaded Draftline plan file. Throws a readable error. */
+/** Validates and normalizes an uploaded StayNth plan file. Throws a readable error. */
 export function parsePlanFile(data: unknown): Plan {
   const source = (data as { plan?: unknown } | null)?.plan ?? data;
   const raw = source as Partial<Plan> | null;
   if (!raw || typeof raw !== "object" || !Array.isArray(raw.rooms)) {
-    throw new Error("This is not a Draftline plan file. Save one from Studio → Export → Plan file.");
+    throw new Error("This is not a StayNth plan file. Save one from Studio → Export → Plan file.");
   }
   if (!num(raw.width) || !num(raw.depth) || raw.width <= 0 || raw.depth <= 0) {
     throw new Error("The plan file has no valid width and depth.");

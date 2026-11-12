@@ -17,6 +17,7 @@ import {
   formatFeet,
   generatePlan,
   getDefaultPlan,
+  createBlankPlan,
   summarize,
   uid,
 } from "@/lib/plan";
@@ -30,7 +31,7 @@ import { GenerateDialog, ShortcutsDialog } from "@/components/Dialogs";
 import { RoomPhotoViewer } from "@/components/RoomPhotoViewer";
 import { PropertiesApp } from "@/components/PropertiesApp";
 
-const STORAGE_KEY = "draftline.plan.v1";
+const STORAGE_KEY = "staynth.plan.v1";
 
 interface Persisted {
   plan: Plan;
@@ -43,7 +44,7 @@ const DEFAULT_DISPLAY: DisplaySettings = { grid: true, dimensions: true, furnitu
 
 function loadPersisted(): Persisted | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("draftline.plan.v1");
     if (!raw) return null;
     const data = JSON.parse(raw) as Persisted;
     if (!data?.plan?.rooms || !Array.isArray(data.plan.rooms)) return null;
@@ -417,6 +418,20 @@ export default function App() {
     });
   };
 
+  const handleNewPlan = useCallback(() => {
+    const hasItems = plan.rooms.length > 0 || plan.extraWalls.length > 0 || plan.furniture.length > 0;
+    if (hasItems && !window.confirm("Start a new house plan? Current drawing will be cleared.")) {
+      return;
+    }
+    const fresh = createBlankPlan("New House");
+    setHistory({ past: [], future: [] });
+    setPlan(fresh);
+    setSelection(null);
+    setTool("wall");
+    setActiveFloor(0);
+    showToast("Started new house plan — select Wall or Room to begin drawing");
+  }, [plan, showToast]);
+
   const subtitle = `${summary.bedrooms} bed · ${summary.bathrooms} bath · ${Math.round(summary.area).toLocaleString()} ft²`;
   const toolLabel = TOOLS.find((t) => t.id === tool)?.label ?? "Select";
 
@@ -444,6 +459,7 @@ export default function App() {
         canRedo={history.future.length > 0}
         onUndo={undo}
         onRedo={redo}
+        onNewPlan={handleNewPlan}
         onGenerate={openGenerate}
         onExport={handleExport}
         onOpenShortcuts={() => setHelpOpen(true)}
@@ -576,7 +592,7 @@ export default function App() {
             <Check className="h-2.5 w-2.5" /> {savedLabel}
           </span>
           <span className="hidden h-2.5 w-px bg-line sm:block" />
-          <span className="hidden sm:inline">DRAFTLINE v1.0</span>
+          <span className="hidden sm:inline">STAYNTH v1.0</span>
           <span className="text-ink-faint/60 lg:hidden">{formatFeet(plan.width)} × {formatFeet(plan.depth)}</span>
         </div>
       </footer>

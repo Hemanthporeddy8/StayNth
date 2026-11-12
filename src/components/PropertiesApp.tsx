@@ -285,7 +285,7 @@ export function PropertiesApp({
           <button onClick={onBack} className="flex items-center gap-2" title="Back to floor plan studio">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-ink text-white"><Building2 className="h-4 w-4" /></span>
             <span className="hidden text-left sm:block">
-              <span className="block text-[16px] font-semibold leading-none tracking-[-0.03em]">draftline</span>
+              <span className="block text-[16px] font-semibold leading-none tracking-[-0.03em]">StayNth</span>
               <span className="mt-1 block font-mono text-[8px] uppercase tracking-[0.2em] text-ink-faint">properties</span>
             </span>
           </button>
@@ -549,7 +549,7 @@ export function PropertiesApp({
             const url = URL.createObjectURL(blob);
             const anchor = document.createElement("a");
             anchor.href = url;
-            anchor.download = "draftline-workspace.json";
+            anchor.download = "staynth-workspace.json";
             anchor.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
             setNotice("Workspace exported");
@@ -557,7 +557,7 @@ export function PropertiesApp({
           onImport={(value) => {
             const data = value as { profile?: WorkspaceProfile; listings?: PropertyListing[]; requests?: PropertyRequest[]; favorites?: string[] };
             if (!Array.isArray(data.listings) || !data.listings.every((listing) => listing.id && listing.plan)) {
-              setNotice("Import failed — not a valid Draftline workspace");
+              setNotice("Import failed — not a valid StayNth workspace");
               return;
             }
             setListings(data.listings);

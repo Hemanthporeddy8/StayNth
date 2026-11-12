@@ -74,7 +74,7 @@ export function buildExportSvg(plan: Plan, showGrid: boolean): string {
       <text x="${titleX + 0.5}" y="${titleY + 3.1}" font-size="0.44" fill="#7c8b8e" letter-spacing="0.1">${plan.width}' × ${plan.depth}' · ${area} SQ FT · ${wallLength} LF WALLS</text>
       <text x="${titleX + 10}" y="${titleY + 2.25}" font-size="0.46" fill="#7c8b8e" letter-spacing="0.1">SCALE 1:50</text>
       <text x="${titleX + 10}" y="${titleY + 3.1}" font-size="0.46" fill="#7c8b8e" letter-spacing="0.1">${esc(date)}</text>
-      <text x="${titleX + 0.5}" y="${titleY + 3.85}" font-size="0.42" fill="#b0ae9f" letter-spacing="0.16">DRAFTLINE STUDIO · SHEET A-101</text>
+      <text x="${titleX + 0.5}" y="${titleY + 3.85}" font-size="0.42" fill="#b0ae9f" letter-spacing="0.16">STAYNTH STUDIO · SHEET A-101</text>
     </g>`;
 
   const northArrow = `
@@ -133,6 +133,6 @@ export async function exportPng(plan: Plan, showGrid: boolean) {
 /** Saves the full plan (all floors) so it can be re-uploaded into a property listing. */
 export function exportPlanFile(plan: Plan) {
   const name = plan.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "floor-plan";
-  const payload = { app: "draftline", version: 1, exportedAt: new Date().toISOString(), plan };
-  download(new Blob([JSON.stringify(payload)], { type: "application/json" }), `${name}.draftline.json`);
+  const payload = { app: "staynth", version: 1, exportedAt: new Date().toISOString(), plan };
+  download(new Blob([JSON.stringify(payload)], { type: "application/json" }), `${name}.staynth.json`);
 }

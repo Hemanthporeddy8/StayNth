@@ -534,7 +534,7 @@ export function Inspector({
         </div>
 
         <p className="pb-1 pt-3 text-center font-mono text-[8.5px] uppercase tracking-[0.14em] text-ink-faint">
-          Saved locally · draftline studio
+          Saved locally · StayNth studio
         </p>
       </div>
     </div>
