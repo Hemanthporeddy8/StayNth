@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Lock, Mail, User as UserIcon, X, Loader2, Sparkles } from "lucide-react";
+import { Lock, Mail, User as UserIcon, X, Loader2, Sparkles } from "lucide-react";
 import { loginUser, registerUser, type User } from "@/lib/auth";
 
 interface AuthModalProps {

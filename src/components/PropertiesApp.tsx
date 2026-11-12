@@ -126,6 +126,7 @@ export function PropertiesApp({
   }, []);
   const [selected, setSelected] = useState<{ id: string; view: "photos" | "3d" } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [storageWarning, setStorageWarning] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -303,7 +304,7 @@ export function PropertiesApp({
         <div className="flex shrink-0 items-center gap-2">
           <span className="hidden rounded-full border border-line bg-paper px-2.5 py-1 font-mono text-[8px] uppercase tracking-wide text-ink-faint xl:flex items-center gap-1.5">
             <span className={cn("h-1.5 w-1.5 rounded-full", syncStatus === "synced" ? "bg-emerald-500 animate-pulse" : syncStatus === "syncing" ? "bg-amber-400" : "bg-ink-faint")} />
-            {syncStatus === "synced" ? "Cloudflare D1 Cloud Sync" : syncStatus === "syncing" ? "Connecting to D1..." : "Local Storage"}
+            {syncStatus === "synced" ? "Cloudflare D1 Cloud Sync" : syncStatus === "syncing" ? "Connecting to D1..." : storageWarning ? "Storage Full" : "Local Storage"}
           </span>
           <button onClick={onBack} className="hidden items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-medium text-ink-soft hover:bg-paper-deep md:flex">
             <ArrowLeft className="h-3.5 w-3.5" /> Studio

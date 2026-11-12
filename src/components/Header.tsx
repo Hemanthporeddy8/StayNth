@@ -13,8 +13,12 @@ import {
   Check,
   Cloud,
   Building2,
+  LogIn,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
+import { AuthModal } from "@/components/AuthModal";
+import { fetchCurrentUser, logoutUser, type User } from "@/lib/auth";
 
 function BrandMark() {
   return (
@@ -64,8 +68,15 @@ export function Header({
   const [exportOpen, setExportOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(planName);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchCurrentUser().then((u) => u && setCurrentUser(u));
+  }, []);
 
   useEffect(() => setDraft(planName), [planName]);
   useEffect(() => {
@@ -252,13 +263,58 @@ export function Header({
           <PanelRight className="h-4 w-4" />
         </button>
 
-        <div className="ml-0.5 hidden h-8 w-8 items-center justify-center rounded-full border border-line bg-paper-deep font-mono text-[10px] font-medium text-ink-soft md:flex">
-          AD
-        </div>
+        {currentUser ? (
+          <div className="relative">
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2 py-1.5 text-[11px] font-medium text-ink hover:bg-paper-deep transition shadow-sm"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[10px] font-bold text-white uppercase">
+                {currentUser.name.charAt(0)}
+              </span>
+              <span className="hidden sm:inline max-w-[80px] truncate">{currentUser.name}</span>
+              <ChevronDown className="h-3 w-3 text-ink-faint" />
+            </button>
+            {userMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-48 rounded-2xl border border-line bg-white p-1.5 shadow-2xl z-50 animate-pop">
+                <div className="px-3 py-2 border-b border-line-soft">
+                  <p className="text-[12px] font-semibold text-ink truncate">{currentUser.name}</p>
+                  <p className="text-[10px] text-ink-soft truncate">{currentUser.email}</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    setUserMenuOpen(false);
+                    await logoutUser();
+                    setCurrentUser(null);
+                  }}
+                  className="w-full text-left flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition"
+                >
+                  <LogOut className="h-3.5 w-3.5" /> Sign Out
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            onClick={() => setAuthModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 py-1.5 text-[11px] font-medium text-ink hover:bg-paper-deep transition shadow-sm"
+          >
+            <LogIn className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Sign In</span>
+          </button>
+        )}
+
         <button className="sr-only" aria-label="Open menu">
           <Menu />
         </button>
       </div>
+
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccess={(user) => {
+          setCurrentUser(user);
+        }}
+      />
     </header>
   );
 }
