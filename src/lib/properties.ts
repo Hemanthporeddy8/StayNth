@@ -521,6 +521,18 @@ export function saveReplicaOrder(order: ReplicaOrder) {
   }
 }
 
+export function updateReplicaOrder(id: string, patch: Partial<ReplicaOrder>): ReplicaOrder[] {
+  try {
+    const list = loadReplicaOrders();
+    const next = list.map((item) => (item.id === id ? { ...item, ...patch } : item));
+    localStorage.setItem(REPLICA_ORDERS_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return loadReplicaOrders();
+  }
+}
+
+
 
 // Cloudflare D1 Remote Database Sync
 export async function fetchRemoteListings(): Promise<PropertyListing[] | null> {

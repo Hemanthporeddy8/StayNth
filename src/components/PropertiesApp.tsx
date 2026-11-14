@@ -27,6 +27,7 @@ import {
   LogOut,
   ShieldCheck,
   Sparkles,
+  Compass,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { ListPropertyDialog } from "@/components/ListPropertyDialog";
@@ -35,6 +36,9 @@ import { clearDraft, peekDraft } from "@/lib/listingDraft";
 import { PropertyMap } from "@/components/PropertyMap";
 import { CompareDialog } from "@/components/CompareDialog";
 import { WorkspaceDialog, type WorkspaceProfile } from "@/components/WorkspaceDialog";
+import { AdminConsoleDialog } from "@/components/AdminConsoleDialog";
+import { RoadTripPlannerModal } from "@/components/RoadTripPlannerModal";
+import { loadFeatureFlags, type FeatureFlags } from "@/lib/featureFlags";
 import { AuthModal } from "@/components/AuthModal";
 import { fetchCurrentUser, logoutUser, type User } from "@/lib/auth";
 import {
@@ -133,6 +137,9 @@ export function PropertiesApp({
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"syncing" | "synced" | "local">("syncing");
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>(loadFeatureFlags);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [roadTripOpen, setRoadTripOpen] = useState(false);
 
   // Fetch authenticated user on load
   useEffect(() => {
@@ -340,6 +347,15 @@ export function PropertiesApp({
                     <UserRound className="h-3.5 w-3.5" /> Workspace & Backup
                   </button>
                   <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      setAdminOpen(true);
+                    }}
+                    className="w-full text-left flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-accent font-medium hover:bg-paper transition"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5 text-accent" /> Master Admin Console
+                  </button>
+                  <button
                     onClick={async () => {
                       setUserMenuOpen(false);
                       await logoutUser();
@@ -361,6 +377,14 @@ export function PropertiesApp({
               <LogIn className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Sign In</span>
             </button>
           )}
+
+          <button
+            onClick={() => setAdminOpen(true)}
+            title="Master Admin Console"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-white text-ink-faint hover:border-ink/40 hover:text-ink transition shadow-2xs"
+          >
+            <ShieldCheck className="h-4 w-4" />
+          </button>
 
           <button onClick={openList} className="flex items-center gap-1.5 rounded-lg bg-ink px-3 py-2 text-[11px] font-medium text-white shadow-sm hover:bg-ink/90">
             <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">List property</span><span className="sm:hidden">List</span>
@@ -434,6 +458,15 @@ export function PropertiesApp({
                   <button onClick={() => setCatalogView("grid")} className={cn("rounded-md px-2.5 py-1 text-[9.5px]", catalogView === "grid" ? "bg-ink text-white" : "text-ink-soft")}>Grid</button>
                   <button onClick={() => setCatalogView("map")} className={cn("flex items-center gap-1 rounded-md px-2.5 py-1 text-[9.5px]", catalogView === "map" ? "bg-ink text-white" : "text-ink-soft")}><MapIcon className="h-3 w-3" /> Map</button>
                 </div>
+                {featureFlags.roadTripPlanner && (
+                  <button
+                    onClick={() => setRoadTripOpen(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-gradient-to-r from-amber-50 to-orange-50 px-2.5 py-1 text-[9.5px] font-semibold text-accent hover:border-accent shadow-2xs transition"
+                  >
+                    <Compass className="h-3.5 w-3.5 text-accent animate-pulse" />
+                    <span>Road Trip Planner</span>
+                  </button>
+                )}
                 <button onClick={() => setCompareOpen(true)} disabled={compareIds.length < 2} className="flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-[9.5px] text-ink-soft disabled:opacity-40"><GitCompare className="h-3 w-3" /> Compare ({compareIds.length})</button>
                 <span className="ml-auto shrink-0 pr-2 font-mono text-[9px] uppercase tracking-wide text-ink-faint">{visible.length} result{visible.length === 1 ? "" : "s"}</span>
               </div>
@@ -546,6 +579,7 @@ export function PropertiesApp({
           profile={profile}
           onSave={setProfile}
           onClose={() => setWorkspaceOpen(false)}
+          onOpenAdmin={() => setAdminOpen(true)}
           onExport={() => {
             const blob = new Blob([JSON.stringify({ version: 1, profile, listings, requests, favorites }, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob);
@@ -576,6 +610,23 @@ export function PropertiesApp({
         onSuccess={(user) => {
           setCurrentUser(user);
           setNotice(`Welcome, ${user.name}!`);
+        }}
+      />
+      <AdminConsoleDialog
+        isOpen={adminOpen}
+        onClose={() => setAdminOpen(false)}
+        requests={requests}
+        listings={listings}
+        onUpdateFlags={(flags) => setFeatureFlags(flags)}
+      />
+      <RoadTripPlannerModal
+        isOpen={roadTripOpen}
+        onClose={() => setRoadTripOpen(false)}
+        listings={listings}
+        onRequestBooking={(newReq) => {
+          saveRequests([newReq, ...requests]);
+          setRequests((prev) => [newReq, ...prev]);
+          setNotice(`Trip Stop Booked: ${newReq.propertyTitle}`);
         }}
       />
       {notice && (
