@@ -30,6 +30,7 @@ import { Inspector } from "@/components/Inspector";
 import { GenerateDialog, ShortcutsDialog } from "@/components/Dialogs";
 import { RoomPhotoViewer } from "@/components/RoomPhotoViewer";
 import { PropertiesApp } from "@/components/PropertiesApp";
+import { AdminPage } from "@/components/AdminPage";
 
 const STORAGE_KEY = "staynth.plan.v1";
 
@@ -62,7 +63,7 @@ function loadPersisted(): Persisted | null {
 
 export default function App() {
   const persisted = useMemo(loadPersisted, []);
-  const [section, setSection] = useState<"studio" | "properties">(() => {
+  const [section, setSection] = useState<"studio" | "properties" | "admin">(() => {
     if (typeof window === "undefined") return "studio";
     const path = window.location.pathname.toLowerCase();
     const hash = window.location.hash.toLowerCase();
@@ -70,9 +71,11 @@ export default function App() {
       path === "/admin" ||
       path.startsWith("/admin") ||
       hash === "#admin" ||
-      hash.startsWith("#admin") ||
-      hash.startsWith("#property=")
+      hash.startsWith("#admin")
     ) {
+      return "admin";
+    }
+    if (hash.startsWith("#property=")) {
       return "properties";
     }
     return "studio";
@@ -86,9 +89,10 @@ export default function App() {
         path === "/admin" ||
         path.startsWith("/admin") ||
         hash === "#admin" ||
-        hash.startsWith("#admin") ||
-        hash.startsWith("#property=")
+        hash.startsWith("#admin")
       ) {
+        setSection("admin");
+      } else if (hash.startsWith("#property=")) {
         setSection("properties");
       }
     };
@@ -471,6 +475,17 @@ export default function App() {
 
   const subtitle = `${summary.bedrooms} bed · ${summary.bathrooms} bath · ${Math.round(summary.area).toLocaleString()} ft²`;
   const toolLabel = TOOLS.find((t) => t.id === tool)?.label ?? "Select";
+
+  if (section === "admin") {
+    return (
+      <AdminPage
+        onExit={() => {
+          window.history.replaceState(null, "", "/");
+          setSection("properties");
+        }}
+      />
+    );
+  }
 
   if (section === "properties") {
     return (

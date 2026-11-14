@@ -36,7 +36,6 @@ import { clearDraft, peekDraft } from "@/lib/listingDraft";
 import { PropertyMap } from "@/components/PropertyMap";
 import { CompareDialog } from "@/components/CompareDialog";
 import { WorkspaceDialog, type WorkspaceProfile } from "@/components/WorkspaceDialog";
-import { AdminConsoleDialog } from "@/components/AdminConsoleDialog";
 import { RoadTripPlannerModal } from "@/components/RoadTripPlannerModal";
 import { loadFeatureFlags, type FeatureFlags } from "@/lib/featureFlags";
 import { AuthModal } from "@/components/AuthModal";
@@ -137,8 +136,7 @@ export function PropertiesApp({
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"syncing" | "synced" | "local">("syncing");
-  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>(loadFeatureFlags);
-  const [adminOpen, setAdminOpen] = useState(false);
+  const [featureFlags] = useState<FeatureFlags>(loadFeatureFlags);
   const [roadTripOpen, setRoadTripOpen] = useState(false);
 
   // Fetch authenticated user on load
@@ -218,22 +216,6 @@ export function PropertiesApp({
     if (match && listings.some((listing) => listing.id === match[1])) setSelected({ id: match[1], view: "photos" });
     // Open a shared property link on first load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => {
-    const checkAdminRoute = () => {
-      const hash = window.location.hash.toLowerCase();
-      const path = window.location.pathname.toLowerCase();
-      if (hash === "#admin" || hash.startsWith("#admin") || path === "/admin" || path.startsWith("/admin")) {
-        setAdminOpen(true);
-      }
-    };
-    checkAdminRoute();
-    window.addEventListener("hashchange", checkAdminRoute);
-    window.addEventListener("popstate", checkAdminRoute);
-    return () => {
-      window.removeEventListener("hashchange", checkAdminRoute);
-      window.removeEventListener("popstate", checkAdminRoute);
-    };
   }, []);
   useEffect(() => {
     if (!notice) return;
@@ -609,21 +591,6 @@ export function PropertiesApp({
           setCurrentUser(user);
           setNotice(`Welcome, ${user.name}!`);
         }}
-      />
-      <AdminConsoleDialog
-        isOpen={adminOpen}
-        onClose={() => {
-          setAdminOpen(false);
-          if (window.location.hash.toLowerCase().includes("admin")) {
-            window.history.replaceState(null, "", window.location.pathname || "/");
-          }
-          if (window.location.pathname.toLowerCase().includes("admin")) {
-            window.history.replaceState(null, "", "/");
-          }
-        }}
-        requests={requests}
-        listings={listings}
-        onUpdateFlags={(flags) => setFeatureFlags(flags)}
       />
       <RoadTripPlannerModal
         isOpen={roadTripOpen}
