@@ -5,7 +5,6 @@ import {
   Bath,
   BedDouble,
   Box,
-  Calendar,
   CheckCircle2,
   Eye,
   Images,
@@ -18,6 +17,14 @@ import {
   Send,
   Star,
   X,
+  Car,
+  Bike,
+  Camera,
+  UploadCloud,
+  ShieldCheck,
+  QrCode,
+  Phone,
+  Sparkles,
 } from "lucide-react";
 import { House3D } from "@/components/House3D";
 import { AvailabilityCalendar } from "@/components/AvailabilityCalendar";
@@ -74,9 +81,16 @@ export function PropertyDetail({
   const [reportDetails, setReportDetails] = useState("");
   const [brochureBusy, setBrochureBusy] = useState(false);
   const [shared, setShared] = useState(false);
+  const [fastTrack, setFastTrack] = useState(false);
+  const [idFile, setIdFile] = useState<string | null>(null);
+  const [idFileName, setIdFileName] = useState("");
+  const [selfieFile, setSelfieFile] = useState<string | null>(null);
+  const [paymentStep, setPaymentStep] = useState<"form" | "upi">("form");
+  const [utrNumber, setUtrNumber] = useState("");
   const selectedInventory = listing.inventory?.find((item) => item.id === inventoryId);
   const nightlyRate = selectedInventory?.price ?? listing.price;
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const platformFee = listing.priceUnit === "night" ? 49 : 0;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -93,7 +107,24 @@ export function PropertyDetail({
   }, [startDate, endDate]);
   const total = listing.priceUnit === "night" ? nights * nightlyRate : listing.priceUnit === "month" ? listing.price : 0;
 
-  const submit = () => {
+  const handleIdUpload = (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    setIdFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setIdFile(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSelfieUpload = (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setSelfieFile(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleProceedToPayment = () => {
     if (!guestName.trim() || !email.includes("@")) {
       setError("Enter your name and a valid email address.");
       return;
@@ -119,6 +150,15 @@ export function PropertyDetail({
         return;
       }
     }
+    if (listing.priceUnit === "night") {
+      setPaymentStep("upi");
+      setError(null);
+    } else {
+      finalizeBooking();
+    }
+  };
+
+  const finalizeBooking = () => {
     const request: PropertyRequest = {
       id: newRequestId(),
       propertyId: listing.id,
@@ -131,6 +171,12 @@ export function PropertyDetail({
       guests,
       message: message.trim(),
       total,
+      platformFee: listing.priceUnit === "night" ? platformFee : 0,
+      payAtHotel: total,
+      paymentUtr: utrNumber.trim() || undefined,
+      fastTrackVerified: fastTrack && !!idFile,
+      idPhotoUrl: idFile || undefined,
+      selfieUrl: selfieFile || undefined,
       inventoryId: inventoryId || undefined,
       status: "pending",
       createdAt: new Date().toISOString(),
@@ -317,6 +363,54 @@ export function PropertyDetail({
                     <button onClick={() => { onReport({ id: newRequestId(), reason: reportReason, details: reportDetails.trim(), createdAt: new Date().toISOString() }); setReportOpen(false); setReportDetails(""); }} className="mt-2 rounded-lg border border-red-200 px-3 py-1.5 text-[10px] text-red-600">Submit report locally</button>
                   </div>
                 )}
+
+                {/* Local Travel & Vehicle Rentals Sponsor Card */}
+                <div className="mt-6 rounded-2xl border border-accent/25 bg-gradient-to-br from-paper via-white to-orange-50/40 p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-accent text-white shadow-xs">
+                        <Car className="h-4 w-4" />
+                      </span>
+                      <div>
+                        <h4 className="text-[12.5px] font-semibold text-ink">Local Travel & Rentals · {listing.location}</h4>
+                        <p className="text-[9.5px] text-ink-faint">Verified StayNth Mobility Partner</p>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-mono text-[8.5px] font-semibold text-emerald-700">Verified Partner</span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 text-[10.5px]">
+                    <div className="rounded-xl border border-line/70 bg-white p-2.5 shadow-xs">
+                      <div className="flex items-center gap-1.5 font-medium text-ink"><Bike className="h-3.5 w-3.5 text-accent" /> Scooters</div>
+                      <p className="mt-0.5 text-[9px] text-ink-faint">Activa / Access from ₹350/day</p>
+                    </div>
+                    <div className="rounded-xl border border-line/70 bg-white p-2.5 shadow-xs">
+                      <div className="flex items-center gap-1.5 font-medium text-ink"><Car className="h-3.5 w-3.5 text-accent" /> Cabs & Drops</div>
+                      <p className="mt-0.5 text-[9px] text-ink-faint">Sedan / SUV Airport transfers</p>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1 rounded-xl border border-line/70 bg-white p-2.5 shadow-xs">
+                      <div className="flex items-center gap-1.5 font-medium text-ink"><Sparkles className="h-3.5 w-3.5 text-accent" /> Self-Drive</div>
+                      <p className="mt-0.5 text-[9px] text-ink-faint">Thar & Swift rentals</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <a
+                      href={`https://wa.me/919876543210?text=Hi%2C+I+am+staying+at+${encodeURIComponent(listing.title)}+and+need+local+transport+in+${encodeURIComponent(listing.location)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ink py-2 text-[11px] font-medium text-white transition hover:bg-ink/85 shadow-sm"
+                    >
+                      <Phone className="h-3 w-3" /> WhatsApp Partner
+                    </a>
+                    <a
+                      href="tel:+919876543210"
+                      className="flex items-center justify-center rounded-lg border border-line bg-white px-3.5 py-2 text-[11px] font-medium text-ink-soft hover:bg-paper"
+                    >
+                      Call
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -325,16 +419,98 @@ export function PropertyDetail({
                 {submitted ? (
                   <div className="py-4 text-center">
                     <CheckCircle2 className="mx-auto h-9 w-9 text-moss" />
-                    <h3 className="mt-3 font-serif text-[22px] text-ink">Request saved</h3>
-                    <p className="mt-1 text-[11px] leading-relaxed text-ink-soft">Reference <span className="font-mono text-ink">{submitted}</span></p>
-                    <p className="mt-3 rounded-lg bg-paper px-3 py-2 text-[10px] leading-relaxed text-ink-faint">This local marketplace does not contact an owner or take payment. The request is stored on this device.</p>
-                    <button onClick={onOpenRequests} className="mt-4 w-full rounded-lg bg-ink py-2 text-[11px] font-medium text-white">View requests</button>
-                    <button onClick={onClose} className="mt-2 w-full py-1 text-[10px] text-ink-faint">Back to properties</button>
+                    <h3 className="mt-3 font-serif text-[22px] text-ink">Booking Confirmed</h3>
+                    <p className="mt-1 text-[11px] leading-relaxed text-ink-soft">Booking Reference: <span className="font-mono font-semibold text-ink">{submitted}</span></p>
+
+                    {fastTrack && idFile && (
+                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 font-mono text-[9px] font-semibold text-emerald-700 border border-emerald-200">
+                        <ShieldCheck className="h-3.5 w-3.5" /> ⚡ 10-Second Express Check-in Active
+                      </div>
+                    )}
+
+                    <div className="mt-4 rounded-xl border border-line-soft bg-paper p-3 text-left text-[11px] space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-ink-faint">StayNth Platform Fee:</span>
+                        <span className="font-medium text-emerald-700">₹{platformFee} Paid via UPI</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-ink-faint">Room Tariff:</span>
+                        <span className="font-semibold text-ink">₹{total.toLocaleString()} (Pay at Hotel)</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-ink-faint">Dates:</span>
+                        <span className="text-ink">{startDate} → {endDate || "Viewing"}</span>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 text-[10px] leading-relaxed text-ink-faint">Your booking has been registered with the host. Show this reference at check-in.</p>
+                    <button onClick={onOpenRequests} className="mt-4 w-full rounded-lg bg-ink py-2 text-[11px] font-medium text-white shadow-sm">View my requests</button>
+                    <button onClick={onClose} className="mt-2 w-full py-1 text-[10px] text-ink-faint hover:text-ink">Back to properties</button>
+                  </div>
+                ) : paymentStep === "upi" ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-accent/20 bg-gradient-to-b from-orange-50/50 to-white p-3 text-center">
+                      <span className="inline-flex rounded-full bg-accent/15 px-2.5 py-0.5 font-mono text-[9px] font-semibold text-accent">
+                        StayNth Booking Guarantee Fee
+                      </span>
+                      <p className="mt-1 font-serif text-[26px] font-bold text-ink">₹{platformFee}</p>
+                      <p className="text-[10px] text-ink-soft">Room tariff of <strong className="text-ink">₹{total.toLocaleString()}</strong> is payable directly to hotel at check-in</p>
+
+                      <div className="mt-3 mx-auto w-36 h-36 rounded-xl border border-line bg-white p-2 flex flex-col items-center justify-center shadow-xs">
+                        <div className="w-full h-full border-2 border-dashed border-ink/20 rounded-lg flex flex-col items-center justify-center bg-paper/50">
+                          <QrCode className="h-16 w-16 text-ink" />
+                          <span className="mt-1 font-mono text-[8px] font-bold tracking-wider text-ink">UPI: staynth@upi</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5 flex items-center justify-center gap-1.5 font-mono text-[10px] text-ink-soft">
+                        <span>UPI ID: <strong className="text-ink">staynth@upi</strong></span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (navigator.clipboard) navigator.clipboard.writeText("staynth@upi");
+                            alert("UPI ID 'staynth@upi' copied to clipboard!");
+                          }}
+                          className="rounded bg-white px-1.5 py-0.5 text-[9px] border border-line hover:text-ink"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block mb-1 font-mono text-[8.5px] uppercase tracking-wide text-ink-faint">
+                        12-Digit UPI Transaction / UTR No. (Optional)
+                      </label>
+                      <input
+                        value={utrNumber}
+                        onChange={(e) => setUtrNumber(e.target.value)}
+                        placeholder="e.g. 431289456712"
+                        className={field}
+                      />
+                    </div>
+
+                    {error && <p className="rounded-lg bg-red-50 px-2.5 py-2 text-[10px] text-red-700">{error}</p>}
+
+                    <button
+                      onClick={finalizeBooking}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent py-2.5 text-[12px] font-semibold text-white transition hover:bg-accent/90 shadow-sm"
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> I Have Paid ₹{platformFee} — Confirm Reservation
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentStep("form")}
+                      className="w-full py-1 text-center text-[10.5px] text-ink-faint hover:text-ink"
+                    >
+                      ← Back to booking details
+                    </button>
                   </div>
                 ) : (
                   <>
                     <p className="text-[20px] font-semibold tracking-[-0.03em] text-ink">{formatPrice(listing)}</p>
-                    <p className="mt-0.5 text-[10px] text-ink-faint">{listing.mode === "sale" ? "Request a property viewing" : "Send a request — no instant booking or payment"}</p>
+                    <p className="mt-0.5 text-[10px] text-ink-faint">{listing.mode === "sale" ? "Request a property viewing" : "Pay ₹49 fee now · Room tariff payable at hotel"}</p>
 
                     <div className="mt-4 space-y-2.5">
                       {listing.inventory && listing.inventory.length > 0 && (
@@ -365,21 +541,82 @@ export function PropertyDetail({
                       )}
                       <input value={guestName} onChange={(event) => setGuestName(event.target.value)} className={field} placeholder="Your name" aria-label="Your name" />
                       <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={field} placeholder="Email address" aria-label="Email address" />
-                      <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={3} className="w-full resize-none rounded-lg border border-line bg-white p-2.5 text-[11px] outline-none focus:border-ink/40" placeholder={listing.mode === "sale" ? "Questions or preferred viewing time..." : "Add a note for the owner..."} />
+                      <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={2} className="w-full resize-none rounded-lg border border-line bg-white p-2.5 text-[11px] outline-none focus:border-ink/40" placeholder={listing.mode === "sale" ? "Questions or preferred viewing time..." : "Add a note for the owner..."} />
+
+                      {/* Fast-Track Check-In Card */}
+                      {listing.priceUnit === "night" && (
+                        <div className="rounded-xl border border-accent/25 bg-orange-50/30 p-2.5">
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={fastTrack}
+                              onChange={(e) => setFastTrack(e.target.checked)}
+                              className="mt-0.5 rounded accent-accent"
+                            />
+                            <div className="text-[11px] leading-snug">
+                              <span className="font-semibold text-ink flex items-center gap-1">
+                                <ShieldCheck className="h-3.5 w-3.5 text-accent" /> ⚡ 10-Second Express Check-In
+                              </span>
+                              <span className="block text-[9.5px] text-ink-faint">Skip reception queues & paperwork. Attach Govt ID & live selfie.</span>
+                            </div>
+                          </label>
+                          {fastTrack && (
+                            <div className="mt-2.5 space-y-2 border-t border-accent/20 pt-2 text-[10px]">
+                              <div>
+                                <span className="block font-medium text-ink mb-1">1. Govt ID (Aadhaar / Passport / DL)</span>
+                                <label className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 py-1.5 text-ink-soft cursor-pointer hover:bg-paper">
+                                  <UploadCloud className="h-3.5 w-3.5 text-accent" />
+                                  <span className="truncate">{idFileName || "Upload ID photo or PDF"}</span>
+                                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => handleIdUpload(e.target.files)} />
+                                </label>
+                              </div>
+                              <div>
+                                <span className="block font-medium text-ink mb-1">2. Quick Live Face Selfie</span>
+                                <label className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 py-1.5 text-ink-soft cursor-pointer hover:bg-paper">
+                                  <Camera className="h-3.5 w-3.5 text-accent" />
+                                  <span>{selfieFile ? "Selfie captured ✓" : "Snap or upload selfie"}</span>
+                                  <input type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => handleSelfieUpload(e.target.files)} />
+                                </label>
+                              </div>
+                              <p className="text-[8.5px] text-ink-faint">Encrypted & auto-expires 7 days after checkout for your privacy.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {listing.priceUnit === "night" && nights > 0 && (
-                      <div className="mt-3 flex items-center justify-between border-t border-line-soft pt-3 text-[11px] text-ink-soft">
-                        <span>${nightlyRate} × {nights} night{nights > 1 ? "s" : ""}</span>
-                        <span className="font-semibold text-ink">${total.toLocaleString()}</span>
+                      <div className="mt-3 border-t border-line-soft pt-3 space-y-1 text-[11px]">
+                        <div className="flex items-center justify-between text-ink-soft">
+                          <span>Room Tariff ({nights} night{nights > 1 ? "s" : ""}):</span>
+                          <span className="font-semibold text-ink">₹{total.toLocaleString()}</span>
+                        </div>
+                        <p className="text-[9.5px] text-ink-faint">Payable directly at hotel reception upon check-in</p>
+                        <div className="flex items-center justify-between text-ink-soft pt-1 border-t border-line-soft/60">
+                          <span className="flex items-center gap-1 text-ink font-medium">
+                            <Sparkles className="h-3 w-3 text-accent" /> StayNth Guarantee & Platform Fee:
+                          </span>
+                          <span className="font-semibold text-accent">₹{platformFee}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-1 border-t border-line font-medium text-ink">
+                          <span>Payable Now Online:</span>
+                          <span className="text-[13px] font-bold text-accent">₹{platformFee}</span>
+                        </div>
                       </div>
                     )}
-                    {listing.priceUnit === "month" && <p className="mt-3 border-t border-line-soft pt-3 text-[10px] text-ink-faint">First month estimate: ${total.toLocaleString()}</p>}
+
+                    {listing.priceUnit === "month" && <p className="mt-3 border-t border-line-soft pt-3 text-[10px] text-ink-faint">First month estimate: ₹{total.toLocaleString()}</p>}
                     {error && <p className="mt-2 rounded-lg bg-red-50 px-2.5 py-2 text-[10px] text-red-700">{error}</p>}
-                    <button onClick={submit} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent py-2.5 text-[12px] font-semibold text-white transition hover:bg-accent/90">
-                      <Send className="h-3.5 w-3.5" /> {listing.mode === "sale" ? "Request viewing" : "Request booking"}
+
+                    <button
+                      onClick={handleProceedToPayment}
+                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent py-2.5 text-[12px] font-semibold text-white transition hover:bg-accent/90 shadow-sm"
+                    >
+                      <Send className="h-3.5 w-3.5" /> {listing.priceUnit === "night" ? `Proceed to Book (Pay ₹${platformFee} Fee)` : listing.mode === "sale" ? "Request viewing" : "Request booking"}
                     </button>
-                    <p className="mt-2 flex items-center justify-center gap-1 text-center font-mono text-[8px] uppercase tracking-wide text-ink-faint"><Calendar className="h-2.5 w-2.5" /> Saved locally · no charge</p>
+                    <p className="mt-2 flex items-center justify-center gap-1 text-center font-mono text-[8px] uppercase tracking-wide text-ink-faint">
+                      <ShieldCheck className="h-2.5 w-2.5 text-moss" /> 100% Secure reservation · Instant confirmation
+                    </p>
                   </>
                 )}
               </div>

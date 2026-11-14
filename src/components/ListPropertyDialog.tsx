@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Check,
+  CheckCircle2,
   FileUp,
   ImagePlus,
   Loader2,
@@ -10,6 +11,8 @@ import {
   Sparkles,
   Upload,
   X,
+  AlertCircle,
+  FileText,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { FOOTPRINT_PRESETS, clamp, generatePlan, parsePlanFile, splitFloors, uid } from "@/lib/plan";
@@ -19,11 +22,13 @@ import { peekDraft, saveDraft } from "@/lib/listingDraft";
 import {
   AMENITY_OPTIONS,
   PROPERTY_TYPE_LABEL,
+  saveReplicaOrder,
   type ListingMode,
   type PropertyListing,
   type PropertyPhoto,
   type PropertyType,
   type RoomInventory,
+  type ReplicaOrder,
 } from "@/lib/properties";
 import { cn } from "@/utils/cn";
 
@@ -81,6 +86,7 @@ export function ListPropertyDialog({
   const [planBusy, setPlanBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
+  const [draftingModalOpen, setDraftingModalOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const planFileRef = useRef<HTMLInputElement>(null);
 
@@ -526,30 +532,28 @@ export function ListPropertyDialog({
               </div>
             </div>
 
-            {/* ₹299 Exact Digital Twin Replica Card */}
+            {/* Architectural Drafting & Replica Services Card */}
             <div className="mt-3 flex flex-col justify-between gap-2.5 rounded-xl border border-accent/30 bg-gradient-to-r from-amber-50/80 via-orange-50/60 to-amber-50/80 p-3 sm:flex-row sm:items-center">
               <div className="flex items-start gap-2.5">
                 <div className="rounded-lg bg-accent/15 p-2 text-accent">
                   <Sparkles className="h-4 w-4" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-semibold text-ink">Exact 1:1 Digital Twin Replica</span>
-                    <span className="rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold text-white shadow-xs">₹299</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[12px] font-semibold text-ink">Architectural 3D Replica Services</span>
+                    <span className="rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold text-white shadow-xs">₹299 / ₹999</span>
                   </div>
                   <p className="mt-0.5 text-[10.5px] leading-snug text-ink-soft">
-                    Don't have time to draw? Send us your floor plan sketch or photos. Our architectural team will draft an exact 1:1 replica with interactive 3D walk-through for your listing.
+                    Don't have time to draw? Our architects create 1:1 floor plans & 3D models. <strong>Remote 3D Twin (₹299, All-India)</strong> or <strong>Executive On-Site Visit (₹999, Bengaluru only)</strong>.
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  alert("Replica Service (₹299):\n\nOur architectural modeling team will contact you at your account email to collect your floor plan sketches, blueprints, or room photos. Your exact 1:1 3D replica will be attached to this listing within 24–48 hours!");
-                }}
+                onClick={() => setDraftingModalOpen(true)}
                 className="shrink-0 rounded-lg bg-ink px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-ink/85 active:scale-95"
               >
-                Order Replica (₹299)
+                Order Drafting (from ₹299)
               </button>
             </div>
           </div>
@@ -593,6 +597,470 @@ export function ListPropertyDialog({
           </div>
         </div>
       </div>
+
+      {draftingModalOpen && (
+        <DraftingOrderModal
+          initialTitle={title}
+          initialLocation={location}
+          onClose={() => setDraftingModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
+
+function DraftingOrderModal({
+  initialTitle,
+  initialLocation,
+  onClose,
+}: {
+  initialTitle: string;
+  initialLocation: string;
+  onClose: () => void;
+}) {
+  const [tier, setTier] = useState<"remote_299" | "visit_999">("remote_299");
+  const [propertyName, setPropertyName] = useState(initialTitle.trim() || "");
+  const [city, setCity] = useState(initialLocation.trim() || "");
+  const [contactName, setContactName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [notes, setNotes] = useState("");
+  const [files, setFiles] = useState<{ name: string }[]>([]);
+  const [utrNumber, setUtrNumber] = useState("");
+  const [step, setStep] = useState<"details" | "payment" | "confirmed">("details");
+  const [error, setError] = useState<string | null>(null);
+  const [orderRecord, setOrderRecord] = useState<ReplicaOrder | null>(null);
+  const [copiedUpi, setCopiedUpi] = useState(false);
+  const orderFileInputRef = useRef<HTMLInputElement>(null);
+
+  const isBengaluru = useMemo(() => {
+    const c = city.trim().toLowerCase();
+    return c.includes("bengaluru") || c.includes("bangalore") || c.includes("blr");
+  }, [city]);
+
+  const amount = tier === "remote_299" ? 299 : 999;
+  const upiId = "staynth@upi";
+  const upiLink = `upi://pay?pa=${upiId}&pn=StayNth%20Drafting&am=${amount}&cu=INR&tn=Drafting%20Order`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiLink)}`;
+
+  const copyUpi = async () => {
+    try {
+      await navigator.clipboard.writeText(upiId);
+      setCopiedUpi(true);
+      setTimeout(() => setCopiedUpi(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const added: { name: string }[] = [];
+    for (const f of Array.from(e.target.files)) {
+      added.push({ name: f.name });
+    }
+    setFiles((prev) => [...prev, ...added]);
+    if (orderFileInputRef.current) orderFileInputRef.current.value = "";
+  };
+
+  const removeFile = (idx: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const proceedToPayment = () => {
+    setError(null);
+    if (!propertyName.trim()) {
+      setError("Please provide a property or building name.");
+      return;
+    }
+    if (!city.trim()) {
+      setError("Please enter your city.");
+      return;
+    }
+    if (tier === "visit_999" && !isBengaluru) {
+      setError("On-Site physical visits are currently available exclusively in Bengaluru. For other cities, please choose the ₹299 Remote Digital Twin service.");
+      return;
+    }
+    if (!contactName.trim()) {
+      setError("Please provide your contact name.");
+      return;
+    }
+    const cleanPhone = phone.replace(/\D/g, "");
+    if (cleanPhone.length < 10) {
+      setError("Please provide a valid 10-digit mobile number for drafting updates.");
+      return;
+    }
+    if (tier === "remote_299" && files.length === 0) {
+      setError("Please upload at least one blueprint, sketch, or photo of your floor layout.");
+      return;
+    }
+    setStep("payment");
+  };
+
+  const confirmPayment = () => {
+    setError(null);
+    const cleanUtr = utrNumber.trim();
+    if (cleanUtr.length < 6) {
+      setError("Please enter the 12-digit UPI Transaction / UTR ID from your payment confirmation.");
+      return;
+    }
+
+    const order: ReplicaOrder = {
+      id: "DRAFT-" + Math.random().toString(36).substring(2, 8).toUpperCase(),
+      tier,
+      propertyName: propertyName.trim(),
+      city: city.trim(),
+      contactName: contactName.trim(),
+      phone: phone.trim(),
+      notes: notes.trim() || undefined,
+      files,
+      amount,
+      utrNumber: cleanUtr,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+
+    saveReplicaOrder(order);
+    setOrderRecord(order);
+    setStep("confirmed");
+  };
+
+  return (
+    <div className="animate-fade fixed inset-0 z-[80] flex items-center justify-center bg-ink/60 p-3 backdrop-blur-sm sm:p-5">
+      <div className="animate-pop flex max-h-[94dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-paper shadow-2xl">
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-line bg-white px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <PencilRuler className="h-4.5 w-4.5" />
+            </span>
+            <div>
+              <h3 className="font-serif text-[18px] leading-tight text-ink">Architectural 3D Drafting</h3>
+              <p className="text-[10.5px] text-ink-soft">1:1 floor plan replicas & interactive 3D twins</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-ink-faint hover:bg-paper-deep hover:text-ink">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="scroll-warm min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {step === "details" && (
+            <div className="space-y-4">
+              {/* Tier Selection */}
+              <div>
+                <label className={label}>Select Service Tier</label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div
+                    onClick={() => setTier("remote_299")}
+                    className={cn(
+                      "cursor-pointer rounded-xl border p-3 transition",
+                      tier === "remote_299"
+                        ? "border-accent bg-accent-soft/20 shadow-xs"
+                        : "border-line bg-white hover:border-ink/20",
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] font-bold text-ink">Remote 3D Replica</span>
+                      <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-white">₹299</span>
+                    </div>
+                    <span className="mt-1 inline-block rounded bg-paper-deep px-1.5 py-0.5 font-mono text-[8.5px] uppercase text-ink-soft">All-India</span>
+                    <p className="mt-1.5 text-[10px] leading-snug text-ink-soft">
+                      Upload blueprints, paper sketches or photos. Our architects draft your exact 1:1 3D model in 24–48h.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setTier("visit_999")}
+                    className={cn(
+                      "cursor-pointer rounded-xl border p-3 transition",
+                      tier === "visit_999"
+                        ? "border-accent bg-accent-soft/20 shadow-xs"
+                        : "border-line bg-white hover:border-ink/20",
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] font-bold text-ink">On-Site Visit</span>
+                      <span className="rounded-full bg-ink px-2 py-0.5 text-[10px] font-bold text-white">₹999</span>
+                    </div>
+                    <span className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[8.5px] uppercase font-semibold text-amber-800">Bengaluru Only</span>
+                    <p className="mt-1.5 text-[10px] leading-snug text-ink-soft">
+                      Certified field architect visits on-site with laser meters to measure, map, and create 2D & 3D plans.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bengaluru restriction check banner */}
+              {tier === "visit_999" && city.trim() && !isBengaluru && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-[11px] text-amber-900">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <div>
+                      <p className="font-semibold">Bengaluru Location Only</p>
+                      <p className="mt-0.5 text-[10px] leading-snug text-amber-800">
+                        Physical visits are currently active within Bengaluru only. For {city}, please choose the <strong>₹299 Remote Digital Twin</strong> tier — upload sketches/photos and our architects will draft the complete 3D walkthrough!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTier("remote_299")}
+                        className="mt-2 rounded-lg bg-amber-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-amber-700"
+                      >
+                        Switch to ₹299 Remote Twin
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Form fields */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className={label}>Property / Hotel Name *</label>
+                  <input
+                    value={propertyName}
+                    onChange={(e) => setPropertyName(e.target.value)}
+                    placeholder="e.g. Palm Court Villa"
+                    className={input}
+                  />
+                </div>
+                <div>
+                  <label className={label}>City *</label>
+                  <input
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="e.g. Bengaluru, Mumbai, Delhi"
+                    className={input}
+                  />
+                </div>
+                <div>
+                  <label className={label}>Contact Person Name *</label>
+                  <input
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                    placeholder="Your name"
+                    className={input}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={label}>WhatsApp / Phone Number (10 digits) *</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="9876543210"
+                    className={input}
+                  />
+                  <span className="mt-0.5 block text-[9px] text-ink-faint">Our architect will message you here with updates & draft previews.</span>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={label}>Special Instructions or Room Details (Optional)</label>
+                  <textarea
+                    rows={2}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="e.g. 2 floors, master bedroom on east side, attached bathroom..."
+                    className="w-full resize-none rounded-lg border border-line bg-white p-2.5 text-[11px] outline-none focus:border-ink/40"
+                  />
+                </div>
+              </div>
+
+              {/* Upload section */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className={label}>Blueprints / Sketches / Photos {tier === "remote_299" && "*"}</label>
+                  <button
+                    type="button"
+                    onClick={() => orderFileInputRef.current?.click()}
+                    className="flex items-center gap-1 text-[10px] font-medium text-accent hover:underline"
+                  >
+                    <Upload className="h-3 w-3" /> Attach files
+                  </button>
+                </div>
+                <input
+                  ref={orderFileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.cad,.dwg"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                {files.length > 0 ? (
+                  <div className="mt-1.5 space-y-1.5">
+                    {files.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between rounded-lg border border-line bg-white px-2.5 py-1.5 text-[10.5px]">
+                        <span className="flex items-center gap-1.5 truncate text-ink">
+                          <FileText className="h-3.5 w-3.5 text-accent" /> {f.name}
+                        </span>
+                        <button type="button" onClick={() => removeFile(i)} className="text-ink-faint hover:text-red-600">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => orderFileInputRef.current?.click()}
+                    className="mt-1 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-line bg-white p-4 text-center hover:border-ink/30"
+                  >
+                    <Upload className="h-5 w-5 text-ink-faint" />
+                    <p className="mt-1 text-[11px] font-medium text-ink-soft">Click to upload blueprints, paper drawings, or room photos</p>
+                    <p className="text-[9.5px] text-ink-faint">PNG, JPG, PDF accepted</p>
+                  </div>
+                )}
+              </div>
+
+              {error && <p className="rounded-lg bg-red-50 p-2.5 text-[11px] text-red-700">{error}</p>}
+            </div>
+          )}
+
+          {step === "payment" && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-line bg-white p-3.5">
+                <div className="flex items-center justify-between border-b border-line pb-2.5">
+                  <div>
+                    <span className="font-semibold text-ink text-[13px]">
+                      {tier === "remote_299" ? "Remote 3D Digital Twin Replica" : "Executive On-Site Architectural Visit"}
+                    </span>
+                    <p className="text-[10px] text-ink-soft">{propertyName} · {city}</p>
+                  </div>
+                  <span className="text-[16px] font-bold text-accent">₹{amount}</span>
+                </div>
+
+                <div className="mt-3 flex flex-col items-center text-center">
+                  <div className="rounded-xl border border-line bg-white p-2 shadow-xs">
+                    <img src={qrUrl} alt="UPI Payment QR Code" className="h-44 w-44 object-contain" />
+                  </div>
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <span className="font-mono text-[11px] font-medium text-ink bg-paper px-2.5 py-1 rounded-md border border-line">
+                      {upiId}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={copyUpi}
+                      className="rounded-md border border-line bg-white px-2 py-1 text-[10px] text-ink-soft hover:bg-paper"
+                    >
+                      {copiedUpi ? "Copied ✓" : "Copy UPI"}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[10px] text-ink-faint">
+                    Scan with Google Pay, PhonePe, Paytm, or BHIM UPI
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className={label}>Enter 12-Digit UPI Reference (UTR) *</label>
+                <input
+                  value={utrNumber}
+                  onChange={(e) => setUtrNumber(e.target.value.replace(/\s+/g, ""))}
+                  placeholder="e.g. 432109876543"
+                  className={input}
+                />
+                <span className="mt-0.5 block text-[9.5px] text-ink-faint">
+                  Found on your payment success receipt in Google Pay / PhonePe / Paytm.
+                </span>
+              </div>
+
+              {error && <p className="rounded-lg bg-red-50 p-2.5 text-[11px] text-red-700">{error}</p>}
+            </div>
+          )}
+
+          {step === "confirmed" && orderRecord && (
+            <div className="flex flex-col items-center py-4 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                <CheckCircle2 className="h-8 w-8" />
+              </span>
+              <h4 className="mt-3 font-serif text-[20px] text-ink">Order Confirmed!</h4>
+              <p className="mt-1 text-[11px] text-ink-soft">
+                Your architectural drafting order has been logged into our queue.
+              </p>
+
+              <div className="mt-4 w-full rounded-xl border border-line bg-white p-3.5 text-left text-[11px] space-y-2">
+                <div className="flex justify-between border-b border-line pb-1.5">
+                  <span className="text-ink-faint">Order ID</span>
+                  <span className="font-mono font-bold text-ink">{orderRecord.id}</span>
+                </div>
+                <div className="flex justify-between border-b border-line pb-1.5">
+                  <span className="text-ink-faint">Service</span>
+                  <span className="font-medium text-ink">{orderRecord.tier === "remote_299" ? "Remote 3D Digital Twin (₹299)" : "On-Site Architectural Visit (₹999)"}</span>
+                </div>
+                <div className="flex justify-between border-b border-line pb-1.5">
+                  <span className="text-ink-faint">Property & City</span>
+                  <span className="text-ink">{orderRecord.propertyName} ({orderRecord.city})</span>
+                </div>
+                <div className="flex justify-between border-b border-line pb-1.5">
+                  <span className="text-ink-faint">UPI UTR Ref</span>
+                  <span className="font-mono text-ink">{orderRecord.utrNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-faint">Contact</span>
+                  <span className="text-ink">{orderRecord.contactName} ({orderRecord.phone})</span>
+                </div>
+              </div>
+
+              <div className="mt-4 w-full rounded-xl bg-amber-50/60 border border-amber-200/80 p-3 text-left text-[10px] text-amber-900 space-y-1">
+                <span className="font-semibold block text-[10.5px]">What happens next?</span>
+                <p>1. Our chief architect reviews your blueprints/sketches within 2 hours.</p>
+                <p>2. We draft your 1:1 exact floor plan with real dimensions and 3D walkthrough.</p>
+                <p>3. Completed 3D digital twin is sent directly to your WhatsApp ({orderRecord.phone}) within 24–48 hours!</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex shrink-0 items-center justify-between border-t border-line bg-white px-5 py-3">
+          {step === "details" && (
+            <>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-line bg-white px-3.5 py-2 text-[11px] font-medium text-ink-soft hover:bg-paper"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={proceedToPayment}
+                className="rounded-lg bg-accent px-4 py-2 text-[11.5px] font-semibold text-white shadow-xs hover:bg-accent/90"
+              >
+                Proceed to Payment (₹{amount}) →
+              </button>
+            </>
+          )}
+
+          {step === "payment" && (
+            <>
+              <button
+                type="button"
+                onClick={() => setStep("details")}
+                className="rounded-lg border border-line bg-white px-3.5 py-2 text-[11px] font-medium text-ink-soft hover:bg-paper"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                onClick={confirmPayment}
+                className="rounded-lg bg-accent px-4 py-2 text-[11.5px] font-semibold text-white shadow-xs hover:bg-accent/90"
+              >
+                Submit UTR & Confirm Order
+              </button>
+            </>
+          )}
+
+          {step === "confirmed" && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-lg bg-ink py-2 text-[12px] font-semibold text-white hover:bg-ink/90"
+            >
+              Done & Return to Listing
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+

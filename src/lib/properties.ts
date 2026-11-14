@@ -121,8 +121,29 @@ export interface PropertyRequest {
   guests: number;
   message: string;
   total: number;
+  platformFee?: number;
+  payAtHotel?: number;
+  paymentUtr?: string;
+  fastTrackVerified?: boolean;
+  idPhotoUrl?: string;
+  selfieUrl?: string;
   inventoryId?: string;
   status: "pending" | "approved" | "declined";
+  createdAt: string;
+}
+
+export interface ReplicaOrder {
+  id: string;
+  tier: "remote_299" | "visit_999";
+  propertyName: string;
+  city: string;
+  contactName: string;
+  phone: string;
+  notes?: string;
+  files: { name: string; url?: string }[];
+  amount: number;
+  utrNumber: string;
+  status: "pending" | "in_progress" | "completed";
   createdAt: string;
 }
 
@@ -477,6 +498,29 @@ export function saveRequests(requests: PropertyRequest[]) {
 export function newRequestId() {
   return uid("request").toUpperCase();
 }
+
+const REPLICA_ORDERS_KEY = "staynth.replica-orders.v1";
+
+export function loadReplicaOrders(): ReplicaOrder[] {
+  try {
+    const raw = localStorage.getItem(REPLICA_ORDERS_KEY);
+    if (!raw) return [];
+    const data = JSON.parse(raw) as ReplicaOrder[];
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveReplicaOrder(order: ReplicaOrder) {
+  try {
+    const existing = loadReplicaOrders();
+    localStorage.setItem(REPLICA_ORDERS_KEY, JSON.stringify([order, ...existing]));
+  } catch {
+    // ignore
+  }
+}
+
 
 // Cloudflare D1 Remote Database Sync
 export async function fetchRemoteListings(): Promise<PropertyListing[] | null> {
