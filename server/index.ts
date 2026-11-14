@@ -342,6 +342,61 @@ export default {
           return json({ success: true }, 200, { "Set-Cookie": clearCookie });
         }
 
+        // --- TEAM & STAFF MANAGEMENT ENDPOINTS ---
+
+        // GET /api/admin/team
+        if (url.pathname === "/api/admin/team" && request.method === "GET") {
+          const currentUser = await getUserFromRequest(request, env.DB);
+          if (!currentUser) {
+            return json({ error: "Unauthorized: Sign in required" }, 401);
+          }
+
+          // If no user has role 'founder' yet, promote current user to founder automatically
+          const founderCountRow = (await env.DB.prepare("SELECT count(*) as count FROM users WHERE role = 'founder'").first()) as any;
+          if (!founderCountRow || founderCountRow.count === 0) {
+            await env.DB.prepare("UPDATE users SET role = 'founder' WHERE id = ?").bind(currentUser.id).run();
+            currentUser.role = "founder";
+          }
+
+          if (currentUser.role !== "founder" && currentUser.role !== "co_admin") {
+            return json({ error: "Forbidden: Admin access required" }, 403);
+          }
+
+          const { results } = await env.DB.prepare(
+            "SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC"
+          ).all();
+          return json({ team: results, currentUserRole: currentUser.role });
+        }
+
+        // POST /api/admin/team/role
+        if (url.pathname === "/api/admin/team/role" && request.method === "POST") {
+          const currentUser = await getUserFromRequest(request, env.DB);
+          if (!currentUser) {
+            return json({ error: "Unauthorized" }, 401);
+          }
+
+          // Ensure caller is founder
+          if (currentUser.role !== "founder") {
+            return json({ error: "Forbidden: Only Founder can assign or revoke roles" }, 403);
+          }
+
+          const body = (await request.json()) as any;
+          const targetEmail = (body.email || "").trim().toLowerCase();
+          const targetRole = body.role; // "co_admin" | "user" | "founder"
+
+          if (!targetEmail || !["co_admin", "user", "founder"].includes(targetRole)) {
+            return json({ error: "Valid email and role (co_admin, user, founder) required" }, 400);
+          }
+
+          const targetUser = (await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(targetEmail).first()) as any;
+          if (!targetUser) {
+            return json({ error: `User with email '${targetEmail}' not found. Ask them to register an account first.` }, 404);
+          }
+
+          await env.DB.prepare("UPDATE users SET role = ? WHERE email = ?").bind(targetRole, targetEmail).run();
+          return json({ success: true, email: targetEmail, role: targetRole });
+        }
+
         // --- PROPERTIES ENDPOINTS ---
 
         // GET /api/properties
