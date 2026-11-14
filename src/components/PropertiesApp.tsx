@@ -220,6 +220,22 @@ export function PropertiesApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
+    const checkAdminRoute = () => {
+      const hash = window.location.hash.toLowerCase();
+      const path = window.location.pathname.toLowerCase();
+      if (hash === "#admin" || hash.startsWith("#admin") || path === "/admin" || path.startsWith("/admin")) {
+        setAdminOpen(true);
+      }
+    };
+    checkAdminRoute();
+    window.addEventListener("hashchange", checkAdminRoute);
+    window.addEventListener("popstate", checkAdminRoute);
+    return () => {
+      window.removeEventListener("hashchange", checkAdminRoute);
+      window.removeEventListener("popstate", checkAdminRoute);
+    };
+  }, []);
+  useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 3000);
     return () => window.clearTimeout(timer);
@@ -347,15 +363,6 @@ export function PropertiesApp({
                     <UserRound className="h-3.5 w-3.5" /> Workspace & Backup
                   </button>
                   <button
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      setAdminOpen(true);
-                    }}
-                    className="w-full text-left flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-accent font-medium hover:bg-paper transition"
-                  >
-                    <ShieldCheck className="h-3.5 w-3.5 text-accent" /> Master Admin Console
-                  </button>
-                  <button
                     onClick={async () => {
                       setUserMenuOpen(false);
                       await logoutUser();
@@ -377,14 +384,6 @@ export function PropertiesApp({
               <LogIn className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Sign In</span>
             </button>
           )}
-
-          <button
-            onClick={() => setAdminOpen(true)}
-            title="Master Admin Console"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-white text-ink-faint hover:border-ink/40 hover:text-ink transition shadow-2xs"
-          >
-            <ShieldCheck className="h-4 w-4" />
-          </button>
 
           <button onClick={openList} className="flex items-center gap-1.5 rounded-lg bg-ink px-3 py-2 text-[11px] font-medium text-white shadow-sm hover:bg-ink/90">
             <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">List property</span><span className="sm:hidden">List</span>
@@ -579,7 +578,6 @@ export function PropertiesApp({
           profile={profile}
           onSave={setProfile}
           onClose={() => setWorkspaceOpen(false)}
-          onOpenAdmin={() => setAdminOpen(true)}
           onExport={() => {
             const blob = new Blob([JSON.stringify({ version: 1, profile, listings, requests, favorites }, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob);
@@ -614,7 +612,15 @@ export function PropertiesApp({
       />
       <AdminConsoleDialog
         isOpen={adminOpen}
-        onClose={() => setAdminOpen(false)}
+        onClose={() => {
+          setAdminOpen(false);
+          if (window.location.hash.toLowerCase().includes("admin")) {
+            window.history.replaceState(null, "", window.location.pathname || "/");
+          }
+          if (window.location.pathname.toLowerCase().includes("admin")) {
+            window.history.replaceState(null, "", "/");
+          }
+        }}
         requests={requests}
         listings={listings}
         onUpdateFlags={(flags) => setFeatureFlags(flags)}

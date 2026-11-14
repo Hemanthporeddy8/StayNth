@@ -523,9 +523,14 @@ export default {
       }
     }
 
-    // Fallback to static assets
+    // Fallback to static assets with SPA routing support for /admin and client routes
     if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
+      const response = await env.ASSETS.fetch(request);
+      if (response.status === 404 && !url.pathname.startsWith("/api/")) {
+        const indexRequest = new Request(new URL("/", request.url), request);
+        return env.ASSETS.fetch(indexRequest);
+      }
+      return response;
     }
 
     return new Response("Not found", { status: 404 });
