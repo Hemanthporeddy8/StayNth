@@ -62,7 +62,44 @@ function loadPersisted(): Persisted | null {
 
 export default function App() {
   const persisted = useMemo(loadPersisted, []);
-  const [section, setSection] = useState<"studio" | "properties">(() => typeof window !== "undefined" && window.location.hash.startsWith("#property=") ? "properties" : "studio");
+  const [section, setSection] = useState<"studio" | "properties">(() => {
+    if (typeof window === "undefined") return "studio";
+    const path = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+    if (
+      path === "/admin" ||
+      path.startsWith("/admin") ||
+      hash === "#admin" ||
+      hash.startsWith("#admin") ||
+      hash.startsWith("#property=")
+    ) {
+      return "properties";
+    }
+    return "studio";
+  });
+
+  useEffect(() => {
+    const handleRoute = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (
+        path === "/admin" ||
+        path.startsWith("/admin") ||
+        hash === "#admin" ||
+        hash.startsWith("#admin") ||
+        hash.startsWith("#property=")
+      ) {
+        setSection("properties");
+      }
+    };
+    handleRoute();
+    window.addEventListener("hashchange", handleRoute);
+    window.addEventListener("popstate", handleRoute);
+    return () => {
+      window.removeEventListener("hashchange", handleRoute);
+      window.removeEventListener("popstate", handleRoute);
+    };
+  }, []);
   const [plan, setPlan] = useState<Plan>(() => persisted?.plan ?? getDefaultPlan());
   const [activeFloor, setActiveFloor] = useState(0);
   /** Set while Studio is open on behalf of the "List property" form. */
