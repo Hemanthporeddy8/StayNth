@@ -16,11 +16,14 @@ import {
   User,
   Mail,
   Phone,
+  MapPin,
+  QrCode,
 } from "lucide-react";
 import {
   type Expedition,
   type BudgetTier,
   type ExpeditionDay,
+  type DayTransitOption,
   loadLocalExpeditions,
   fetchRemoteExpeditions,
 } from "@/lib/expeditions";
@@ -58,6 +61,17 @@ export function ExpeditionsPage({
   const [phone, setPhone] = useState("");
   const [fastTrackKyc, setFastTrackKyc] = useState(true);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [includeScootyHold, setIncludeScootyHold] = useState(true);
+  const [mobilityPassCode, setMobilityPassCode] = useState<string | null>(null);
+
+  const activeRentalHub = useMemo(() => {
+    if (!selectedExpedition) return null;
+    for (const day of selectedExpedition.days) {
+      const hub = day.transit?.[selectedTier]?.rentalHub;
+      if (hub) return hub;
+    }
+    return null;
+  }, [selectedExpedition, selectedTier]);
 
   // Load expeditions from remote D1
   useEffect(() => {
@@ -145,6 +159,11 @@ export function ExpeditionsPage({
       return;
     }
 
+    const pass = activeRentalHub && includeScootyHold ? `GOK-PASS-${Math.floor(1000 + Math.random() * 9000)}` : null;
+    if (pass) {
+      setMobilityPassCode(pass);
+    }
+
     const currentRequests = loadRequests();
     const createdRequests: PropertyRequest[] = selectedExpedition.days
       .filter((d) => d.stays[selectedTier] && d.stays[selectedTier].pricePerNight > 0)
@@ -154,6 +173,8 @@ export function ExpeditionsPage({
         checkIn.setDate(checkIn.getDate() + index);
         const checkOut = new Date(checkIn);
         checkOut.setDate(checkOut.getDate() + 1);
+
+        const scootyNote = pass && index === 0 ? ` • [StayNth Priority Scooty Pass: ${pass} (${activeRentalHub?.vehicle} @ ${activeRentalHub?.pickup})]` : "";
 
         return {
           id: `req_exp_${Date.now()}_${index}`,
@@ -165,10 +186,10 @@ export function ExpeditionsPage({
           startDate: checkIn.toISOString().split("T")[0],
           endDate: checkOut.toISOString().split("T")[0],
           guests: 2,
-          message: `Founder Expedition: ${selectedExpedition.title} • Day ${d.dayNumber} Stay (${d.fromLocation} ➔ ${d.toLocation}) • Contact: ${phone}`,
-          total: stay.pricePerNight + 49,
+          message: `Founder Expedition: ${selectedExpedition.title} • Day ${d.dayNumber} Stay (${d.fromLocation} ➔ ${d.toLocation})${scootyNote} • Contact: ${phone}`,
+          total: stay.pricePerNight + 49 + (pass && index === 0 ? 49 : 0),
           payAtHotel: stay.pricePerNight,
-          platformFee: 49,
+          platformFee: 49 + (pass && index === 0 ? 49 : 0),
           paymentUtr: `UTR-EXP-${Math.floor(100000 + Math.random() * 900000)}`,
           status: "pending",
           fastTrackVerified: fastTrackKyc,
@@ -419,108 +440,203 @@ export function ExpeditionsPage({
                   </span>
                 </div>
 
-                {selectedExpedition.days.map((day: ExpeditionDay) => {
+                {selectedExpedition.days.map((day: ExpeditionDay, dayIdx: number) => {
                   const stay = day.stays[selectedTier];
+                  const transitOption: DayTransitOption | undefined = day.transit?.[selectedTier];
+
                   return (
-                    <div
-                      key={day.dayNumber}
-                      className="overflow-hidden rounded-2xl border border-line bg-white shadow-xs transition hover:border-ink/30"
-                    >
-                      {/* Day Header */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-paper px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink font-mono text-[11px] font-bold text-white">
-                            {day.dayNumber}
-                          </span>
-                          <div>
-                            <h4 className="font-serif text-[16px] font-bold text-ink">
-                              {day.fromLocation} <span className="text-accent">➔</span> {day.toLocation}
-                            </h4>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 font-mono text-[11px] text-ink-soft">
-                          <span>{day.distanceKm} km</span>
-                          <span>•</span>
-                          <span>{day.driveTime}</span>
-                        </div>
-                      </div>
+                    <div key={day.dayNumber} className="space-y-4">
+                      {/* Transport Connector Node */}
+                      {transitOption && (
+                        <div className="relative flex flex-col items-center pt-1">
+                          {/* Top dotted connector line if not first day */}
+                          {dayIdx > 0 && (
+                            <div className="h-6 w-0.5 border-l-2 border-dashed border-accent/40 my-1" />
+                          )}
 
-                      {/* Day Route Notes & Founder Tips */}
-                      <div className="p-5">
-                        <div className="flex flex-wrap gap-2 mb-3">
-                          {day.highlights.map((h, hi) => (
-                            <span key={hi} className="rounded-md bg-paper px-2.5 py-1 text-[11.5px] text-ink-soft border border-line">
-                              {h}
-                            </span>
-                          ))}
-                        </div>
-
-                        {day.founderTips && (
-                          <div className="mt-3.5 rounded-xl border border-amber-300/60 bg-amber-50/70 p-3.5 text-[12px] text-amber-950 flex items-start gap-2.5">
-                            <Sparkles className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
-                            <div>
-                              <strong className="font-semibold block text-[11px] uppercase tracking-wide text-amber-900">
-                                Founder Scouting Tip:
-                              </strong>
-                              <span className="leading-snug">{day.founderTips}</span>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Stay Card for Selected Tier */}
-                        {stay && (
-                          <div className="mt-5 rounded-xl border border-line bg-paper-deep p-4 transition hover:bg-white hover:border-ink/20">
-                            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                              <div className="flex gap-3.5 items-center">
-                                <img
-                                  src={stay.photo}
-                                  alt={stay.name}
-                                  className="h-20 w-24 shrink-0 rounded-lg object-cover border border-line"
-                                />
+                          {/* Transport Node Card */}
+                          <div className="w-full rounded-2xl border border-accent/35 bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-amber-50/90 p-4 sm:p-5 shadow-xs transition hover:border-accent/60">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-accent/20 pb-2.5">
+                              <div className="flex items-center gap-2.5">
+                                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-[13px] font-bold text-white shadow-2xs">
+                                  {transitOption.mode === "train" ? "🚆" : transitOption.mode === "bus" ? "🚌" : transitOption.mode === "scooty" ? "🛵" : transitOption.mode === "flight" ? "✈️" : "🚗"}
+                                </span>
                                 <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="rounded-md bg-ink/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-ink font-semibold">
-                                      {stay.type}
-                                    </span>
-                                    <span className="rounded-md bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide">
-                                      Onboarded Stay
-                                    </span>
-                                  </div>
-                                  <h5 className="font-serif text-[15px] font-bold text-ink mt-1">
-                                    {stay.name}
-                                  </h5>
-                                  <div className="mt-1 flex flex-wrap gap-1.5">
-                                    {stay.features.map((feat, fi) => (
-                                      <span
-                                        key={fi}
-                                        className="rounded bg-white px-2 py-0.5 text-[10px] text-ink-soft border border-line"
-                                      >
-                                        {feat}
+                                  <span className="font-serif text-[14px] font-bold text-ink block">
+                                    {transitOption.title}
+                                  </span>
+                                  <span className="font-mono text-[9px] text-accent uppercase tracking-wider font-semibold">
+                                    Leg {day.dayNumber} Transport • {day.fromLocation} ➔ {day.toLocation}
+                                  </span>
+                                </div>
+                              </div>
+                              {transitOption.estimatedFare && (
+                                <span className="rounded-full bg-white px-2.5 py-1 text-[10.5px] font-mono text-accent font-bold border border-accent/30 shadow-2xs">
+                                  {transitOption.estimatedFare}
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="mt-2.5 text-[12px] leading-relaxed text-ink-soft">
+                              {transitOption.details}
+                            </p>
+
+                            <div className="mt-2.5 flex items-center justify-between pt-2 border-t border-accent/15 text-[11px] font-mono text-ink">
+                              <span><strong>Curated Mode:</strong> {transitOption.badge}</span>
+                            </div>
+
+                            {/* RENTAL HUB CARD (e.g. Gokarna Scooty Hub) */}
+                            {transitOption.rentalHub && (
+                              <div className="mt-3.5 rounded-xl border-2 border-emerald-500/35 bg-white p-4 shadow-xs">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-[20px] shadow-2xs">
+                                      🛵
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-serif text-[14px] font-bold text-ink">
+                                          StayNth Priority Mobility Hub
+                                        </span>
+                                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[8.5px] font-bold uppercase tracking-wider text-emerald-800">
+                                          Gokarna Partner
+                                        </span>
+                                      </div>
+                                      <span className="text-[11.5px] font-semibold text-emerald-800 block">
+                                        {transitOption.rentalHub.vehicle}
                                       </span>
-                                    ))}
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-serif text-[16px] font-bold text-ink">
+                                      ₹{transitOption.rentalHub.dailyRate}
+                                    </div>
+                                    <span className="font-mono text-[9.5px] text-ink-faint">/ day rental tariff</span>
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 space-y-2 text-[11px] text-ink-soft border-t border-line-soft pt-2.5">
+                                  <div className="flex items-center gap-1.5 text-emerald-800 font-semibold">
+                                    <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+                                    <span>100% RTO Commercial Black-and-Yellow Plates • Zero Police Hassle</span>
+                                  </div>
+                                  <div className="flex items-start gap-1.5">
+                                    <MapPin className="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
+                                    <span><strong>Pickup Counter:</strong> {transitOption.rentalHub.pickup}</span>
+                                  </div>
+                                  <div className="flex items-start gap-1.5 text-[10.5px] text-amber-900 bg-amber-50/80 p-2.5 rounded-lg border border-amber-200/60 leading-relaxed">
+                                    <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                    <span><strong>Local Return Rule:</strong> {transitOption.rentalHub.returnPolicy}</span>
                                   </div>
                                 </div>
                               </div>
+                            )}
+                          </div>
 
-                              <div className="text-left sm:text-right shrink-0">
-                                {stay.pricePerNight > 0 ? (
-                                  <>
-                                    <div className="font-serif text-[18px] font-bold text-ink">
-                                      ₹{stay.pricePerNight.toLocaleString()}
-                                    </div>
-                                    <span className="font-mono text-[10.5px] text-ink-soft">
-                                      per night
-                                    </span>
-                                  </>
-                                ) : (
-                                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-bold text-emerald-800">
-                                    Return Leg
-                                  </span>
-                                )}
-                              </div>
+                          {/* Down connector arrow into day card */}
+                          <div className="h-4 w-0.5 border-l-2 border-dashed border-accent/40" />
+                          <div className="-mt-1 text-accent text-[9px] leading-none mb-1">▼</div>
+                        </div>
+                      )}
+
+                      {/* Day Card */}
+                      <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-xs transition hover:border-ink/30">
+                        {/* Day Header */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-paper px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink font-mono text-[11px] font-bold text-white">
+                              {day.dayNumber}
+                            </span>
+                            <div>
+                              <h4 className="font-serif text-[16px] font-bold text-ink">
+                                {day.fromLocation} <span className="text-accent">➔</span> {day.toLocation}
+                              </h4>
                             </div>
                           </div>
-                        )}
+                          <div className="flex items-center gap-3 font-mono text-[11px] text-ink-soft">
+                            <span>{day.distanceKm} km</span>
+                            <span>•</span>
+                            <span>{day.driveTime}</span>
+                          </div>
+                        </div>
+
+                        {/* Day Route Notes & Founder Tips */}
+                        <div className="p-5">
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {day.highlights.map((h, hi) => (
+                              <span key={hi} className="rounded-md bg-paper px-2.5 py-1 text-[11.5px] text-ink-soft border border-line">
+                                {h}
+                              </span>
+                            ))}
+                          </div>
+
+                          {day.founderTips && (
+                            <div className="mt-3.5 rounded-xl border border-amber-300/60 bg-amber-50/70 p-3.5 text-[12px] text-amber-950 flex items-start gap-2.5">
+                              <Sparkles className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                              <div>
+                                <strong className="font-semibold block text-[11px] uppercase tracking-wide text-amber-900">
+                                  Founder Scouting Tip:
+                                </strong>
+                                <span className="leading-snug">{day.founderTips}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Stay Card for Selected Tier */}
+                          {stay && (
+                            <div className="mt-5 rounded-xl border border-line bg-paper-deep p-4 transition hover:bg-white hover:border-ink/20">
+                              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                                <div className="flex gap-3.5 items-center">
+                                  <img
+                                    src={stay.photo}
+                                    alt={stay.name}
+                                    className="h-20 w-24 shrink-0 rounded-lg object-cover border border-line"
+                                  />
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="rounded-md bg-ink/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-ink font-semibold">
+                                        {stay.type}
+                                      </span>
+                                      <span className="rounded-md bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide">
+                                        Onboarded Stay
+                                      </span>
+                                    </div>
+                                    <h5 className="font-serif text-[15px] font-bold text-ink mt-1">
+                                      {stay.name}
+                                    </h5>
+                                    <div className="mt-1 flex flex-wrap gap-1.5">
+                                      {stay.features.map((feat, fi) => (
+                                        <span
+                                          key={fi}
+                                          className="rounded bg-white px-2 py-0.5 text-[10px] text-ink-soft border border-line"
+                                        >
+                                          {feat}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="text-left sm:text-right shrink-0">
+                                  {stay.pricePerNight > 0 ? (
+                                    <>
+                                      <div className="font-serif text-[18px] font-bold text-ink">
+                                        ₹{stay.pricePerNight.toLocaleString()}
+                                      </div>
+                                      <span className="font-mono text-[10.5px] text-ink-soft">
+                                        per night
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-bold text-emerald-800">
+                                      Return Leg
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -548,16 +664,50 @@ export function ExpeditionsPage({
                         <Check className="h-7 w-7" />
                       </div>
                       <h4 className="font-serif text-[18px] font-bold text-ink">
-                        Circuit Circuit Reserved!
+                        Circuit Stays Reserved!
                       </h4>
                       <p className="text-[12px] text-ink-soft leading-relaxed">
                         Your bookings for the <strong>{selectedExpedition.title}</strong> have been secured. The partner homestays and resorts along the route have been notified of your arrival.
                       </p>
+
+                      {/* PRIORITY MOBILITY PASS VOUCHER (if selected) */}
+                      {mobilityPassCode && activeRentalHub && (
+                        <div className="mt-3 rounded-xl border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-50 to-teal-50 p-4 text-left shadow-xs">
+                          <div className="flex items-center justify-between border-b border-emerald-200/80 pb-2.5">
+                            <div className="flex items-center gap-1.5 font-serif text-[13px] font-bold text-emerald-950">
+                              <QrCode className="h-4 w-4 text-emerald-600" />
+                              <span>StayNth Priority Scooty Pass</span>
+                            </div>
+                            <span className="rounded-full bg-emerald-600 px-2 py-0.5 font-mono text-[9px] font-bold text-white uppercase tracking-wider">
+                              Priority Held
+                            </span>
+                          </div>
+                          <div className="mt-2.5 font-mono text-[12px] text-ink">
+                            Pass Code: <strong className="text-emerald-900 font-bold tracking-wider">{mobilityPassCode}</strong>
+                          </div>
+                          <div className="mt-1 text-[11px] text-ink-soft">
+                            Vehicle: <strong className="text-ink">{activeRentalHub.vehicle}</strong>
+                          </div>
+                          <div className="mt-1 text-[11px] text-ink-soft">
+                            Pickup Counter: <strong className="text-ink">{activeRentalHub.pickup}</strong>
+                          </div>
+                          <div className="mt-1 text-[11px] text-ink-soft">
+                            Daily Tariff: <strong className="text-ink">₹{activeRentalHub.dailyRate}/day</strong> (Pay direct to shop at counter)
+                          </div>
+                          <p className="mt-2 text-[10px] text-emerald-800 leading-snug bg-white/70 p-2 rounded-lg border border-emerald-200">
+                            Show this pass code at Counter #2 upon arrival. Your scooter is pre-reserved with your name tag and will not be given away to walk-in peak holiday crowds.
+                          </p>
+                        </div>
+                      )}
+
                       <div className="rounded-xl bg-paper p-3 font-mono text-[11px] text-ink-soft border border-line">
                         Status: Pending Check-In • Zero Advance Required
                       </div>
                       <button
-                        onClick={() => setBookingSuccess(false)}
+                        onClick={() => {
+                          setBookingSuccess(false);
+                          setMobilityPassCode(null);
+                        }}
                         className="w-full rounded-xl border border-line bg-white py-2.5 text-[12px] font-medium text-ink hover:bg-paper-deep"
                       >
                         Book Another Group
@@ -579,9 +729,15 @@ export function ExpeditionsPage({
                             ₹{totalStayCost.toLocaleString()}
                           </span>
                         </div>
+                        {activeRentalHub && includeScootyHold && (
+                          <div className="flex items-center justify-between text-[11px] mt-1 text-emerald-800">
+                            <span>Priority Scooty Pass:</span>
+                            <span className="font-mono font-bold">+₹49 lock fee</span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between text-[10.5px] text-ink-faint mt-1">
-                          <span>Pay at check-in:</span>
-                          <span>100% direct to hosts</span>
+                          <span>Pay at check-in / pickup:</span>
+                          <span>100% direct to hosts & shop</span>
                         </div>
                       </div>
 
@@ -649,6 +805,30 @@ export function ExpeditionsPage({
                           />
                         </div>
                       </div>
+
+                      {/* Optional Priority Scooty Pass Hold */}
+                      {activeRentalHub && (
+                        <div className="rounded-xl border border-emerald-400/50 bg-emerald-50/70 p-3.5 flex items-start gap-2.5 shadow-2xs">
+                          <input
+                            type="checkbox"
+                            id="scootyHold"
+                            checked={includeScootyHold}
+                            onChange={(e) => setIncludeScootyHold(e.target.checked)}
+                            className="mt-0.5 rounded border-line text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <label htmlFor="scootyHold" className="text-[11px] text-ink leading-snug cursor-pointer">
+                            <strong className="text-emerald-950 block flex items-center gap-1.5">
+                              <span>🛵 Include Priority Gokarna Scooty Hold (+₹49):</span>
+                              <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[8.5px] font-bold text-white uppercase tracking-wider">
+                                Peak Guarantee
+                              </span>
+                            </strong>
+                            <span className="text-emerald-900/90 mt-0.5 block text-[10.5px]">
+                              Guarantees an Activa 6G held with your name tag at Counter #2 (Gokarna Bus Stand). Never roam around shops or face weekend price-gouging.
+                            </span>
+                          </label>
+                        </div>
+                      )}
 
                       {/* Fast Track KYC */}
                       <div className="rounded-xl border border-line bg-paper p-3 flex items-start gap-2.5">
