@@ -31,6 +31,7 @@ import { GenerateDialog, ShortcutsDialog } from "@/components/Dialogs";
 import { RoomPhotoViewer } from "@/components/RoomPhotoViewer";
 import { PropertiesApp } from "@/components/PropertiesApp";
 import { AdminPage } from "@/components/AdminPage";
+import { ExpeditionsPage } from "@/components/ExpeditionsPage";
 
 const STORAGE_KEY = "staynth.plan.v1";
 
@@ -63,7 +64,7 @@ function loadPersisted(): Persisted | null {
 
 export default function App() {
   const persisted = useMemo(loadPersisted, []);
-  const [section, setSection] = useState<"studio" | "properties" | "admin">(() => {
+  const [section, setSection] = useState<"studio" | "properties" | "expeditions" | "admin">(() => {
     if (typeof window === "undefined") return "studio";
     const path = window.location.pathname.toLowerCase();
     const hash = window.location.hash.toLowerCase();
@@ -76,14 +77,20 @@ export default function App() {
       return "admin";
     }
     if (
-      hash.startsWith("#property") ||
       hash.startsWith("#expedition") ||
       hash.startsWith("#trip") ||
+      hash === "#expeditions" ||
+      path.startsWith("/expeditions") ||
+      path.startsWith("/expedition")
+    ) {
+      return "expeditions";
+    }
+    if (
+      hash.startsWith("#property") ||
       hash === "#properties" ||
       hash === "#marketplace" ||
       path.startsWith("/properties") ||
-      path.startsWith("/marketplace") ||
-      path.startsWith("/expedition")
+      path.startsWith("/marketplace")
     ) {
       return "properties";
     }
@@ -102,14 +109,19 @@ export default function App() {
       ) {
         setSection("admin");
       } else if (
-        hash.startsWith("#property") ||
         hash.startsWith("#expedition") ||
         hash.startsWith("#trip") ||
+        hash === "#expeditions" ||
+        path.startsWith("/expeditions") ||
+        path.startsWith("/expedition")
+      ) {
+        setSection("expeditions");
+      } else if (
+        hash.startsWith("#property") ||
         hash === "#properties" ||
         hash === "#marketplace" ||
         path.startsWith("/properties") ||
-        path.startsWith("/marketplace") ||
-        path.startsWith("/expedition")
+        path.startsWith("/marketplace")
       ) {
         setSection("properties");
       }
@@ -505,12 +517,35 @@ export default function App() {
     );
   }
 
+  if (section === "expeditions") {
+    return (
+      <ExpeditionsPage
+        onBack={() => {
+          window.history.replaceState(null, "", "#properties");
+          setSection("properties");
+        }}
+        onOpenMarketplace={() => {
+          window.history.replaceState(null, "", "#properties");
+          setSection("properties");
+        }}
+        onOpenStudio={() => {
+          window.history.replaceState(null, "", "/");
+          setSection("studio");
+        }}
+      />
+    );
+  }
+
   if (section === "properties") {
     return (
       <PropertiesApp
         currentPlan={visiblePlan}
         floorPlans={studioFloorPlans}
         onBack={() => setSection("studio")}
+        onOpenExpeditions={() => {
+          window.history.replaceState(null, "", "#expeditions");
+          setSection("expeditions");
+        }}
         resumeListing={resumeListing}
         onResumed={() => setResumeListing(false)}
         onDrawInStudio={startListingPlan}

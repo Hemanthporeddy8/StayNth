@@ -37,13 +37,7 @@ import { PropertyMap } from "@/components/PropertyMap";
 import { CompareDialog } from "@/components/CompareDialog";
 import { WorkspaceDialog, type WorkspaceProfile } from "@/components/WorkspaceDialog";
 import { RoadTripPlannerModal } from "@/components/RoadTripPlannerModal";
-import { ExpeditionModal } from "@/components/ExpeditionModal";
 import { loadFeatureFlags, type FeatureFlags } from "@/lib/featureFlags";
-import {
-  loadLocalExpeditions,
-  fetchRemoteExpeditions,
-  type Expedition,
-} from "@/lib/expeditions";
 import { AuthModal } from "@/components/AuthModal";
 import { fetchCurrentUser, logoutUser, type User } from "@/lib/auth";
 import {
@@ -103,6 +97,7 @@ export function PropertiesApp({
   resumeListing,
   onResumed,
   onDrawInStudio,
+  onOpenExpeditions,
 }: {
   currentPlan: Plan;
   floorPlans: { name: string; plan: Plan }[];
@@ -111,6 +106,7 @@ export function PropertiesApp({
   resumeListing: boolean;
   onResumed: () => void;
   onDrawInStudio: (mode: "edit" | "blank") => void;
+  onOpenExpeditions?: () => void;
 }) {
   const [listings, setListings] = useState<PropertyListing[]>(loadListings);
   const [requests, setRequests] = useState<PropertyRequest[]>(loadRequests);
@@ -141,36 +137,8 @@ export function PropertiesApp({
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<"syncing" | "synced" | "local">("syncing");
   const [featureFlags] = useState<FeatureFlags>(loadFeatureFlags);
   const [roadTripOpen, setRoadTripOpen] = useState(false);
-  const [expeditions, setExpeditions] = useState<Expedition[]>(loadLocalExpeditions);
-  const [selectedExpedition, setSelectedExpedition] = useState<Expedition | null>(null);
-
-  // Sync expeditions from remote
-  useEffect(() => {
-    fetchRemoteExpeditions().then((remote) => {
-      if (remote && remote.length > 0) {
-        setExpeditions(remote);
-      }
-    });
-  }, []);
-
-  // Hash route for expeditions
-  useEffect(() => {
-    const checkExpeditionHash = () => {
-      const match = window.location.hash.match(/^#expedition=([A-Za-z0-9_-]+)/);
-      if (match) {
-        const found = expeditions.find((e) => e.id === match[1]);
-        if (found) setSelectedExpedition(found);
-      } else if (window.location.hash.toLowerCase() === "#expeditions" && expeditions.length > 0) {
-        setSelectedExpedition(expeditions[0]);
-      }
-    };
-    checkExpeditionHash();
-    window.addEventListener("hashchange", checkExpeditionHash);
-    return () => window.removeEventListener("hashchange", checkExpeditionHash);
-  }, [expeditions]);
 
   // Fetch authenticated user on load
   useEffect(() => {
@@ -200,16 +168,13 @@ export function PropertiesApp({
               await saveRemoteListing(item);
             }
           }
-          setSyncStatus("synced");
-        } else {
-          setSyncStatus("local");
         }
 
         if (remoteRequests !== null && remoteRequests.length > 0) {
           setRequests(remoteRequests);
         }
       } catch {
-        if (!cancelled) setSyncStatus("local");
+        // sync failed, keep local
       }
     }
 
@@ -342,10 +307,15 @@ export function PropertiesApp({
           </nav>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden rounded-full border border-line bg-paper px-2.5 py-1 font-mono text-[8px] uppercase tracking-wide text-ink-faint xl:flex items-center gap-1.5">
-            <span className={cn("h-1.5 w-1.5 rounded-full", syncStatus === "synced" ? "bg-emerald-500 animate-pulse" : syncStatus === "syncing" ? "bg-amber-400" : "bg-ink-faint")} />
-            {syncStatus === "synced" ? "Cloudflare D1 Cloud Sync" : syncStatus === "syncing" ? "Connecting to D1..." : storageWarning ? "Storage Full" : "Local Storage"}
-          </span>
+          {onOpenExpeditions && featureFlags.founderExpeditions && (
+            <button
+              onClick={onOpenExpeditions}
+              className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/5 px-2.5 py-1.5 text-[11px] font-semibold text-accent hover:bg-accent/10 transition shadow-2xs"
+            >
+              <Compass className="h-3.5 w-3.5 text-accent animate-pulse" />
+              <span>Expeditions</span>
+            </button>
+          )}
           <button onClick={onBack} className="hidden items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-medium text-ink-soft hover:bg-paper-deep md:flex">
             <ArrowLeft className="h-3.5 w-3.5" /> Studio
           </button>
@@ -481,93 +451,10 @@ export function PropertiesApp({
                     <span>Road Trip Planner</span>
                   </button>
                 )}
-                {featureFlags.founderExpeditions && expeditions.length > 0 && (
-                  <button
-                    onClick={() => setSelectedExpedition(expeditions[0])}
-                    className="flex items-center gap-1.5 rounded-lg border border-emerald-400/50 bg-gradient-to-r from-emerald-50 to-teal-50 px-2.5 py-1 text-[9.5px] font-semibold text-emerald-800 hover:border-emerald-500 shadow-2xs transition"
-                  >
-                    <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Founder Expeditions ({expeditions.length})</span>
-                  </button>
-                )}
                 <button onClick={() => setCompareOpen(true)} disabled={compareIds.length < 2} className="flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-[9.5px] text-ink-soft disabled:opacity-40"><GitCompare className="h-3.5 w-3.5" /> Compare ({compareIds.length})</button>
                 <span className="ml-auto shrink-0 pr-2 font-mono text-[9px] uppercase tracking-wide text-ink-faint">{visible.length} result{visible.length === 1 ? "" : "s"}</span>
               </div>
             </div>
-
-            {/* FOUNDER EXPEDITIONS FEATURED CAROUSEL */}
-            {tab === "explore" && featureFlags.founderExpeditions && expeditions.filter((e) => e.published).length > 0 && (
-              <div className="mt-5 rounded-2xl border border-line bg-gradient-to-br from-paper to-white p-4 sm:p-6 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-line pb-3.5">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-accent px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
-                        Curated By Founder
-                      </span>
-                      <span className="text-[11px] text-ink-soft hidden sm:inline">
-                        Ground-tested road trips with 3 budget tiers (Tents ➔ Resorts ➔ Villas)
-                      </span>
-                    </div>
-                    <h2 className="mt-1 font-serif text-[20px] font-bold text-ink">
-                      Founder-Curated Expeditions
-                    </h2>
-                  </div>
-                  <span className="text-[11px] font-mono text-ink-faint">
-                    {expeditions.filter((e) => e.published).length} Active Circuit{expeditions.filter((e) => e.published).length === 1 ? "" : "s"}
-                  </span>
-                </div>
-
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {expeditions
-                    .filter((e) => e.published)
-                    .map((exp) => (
-                      <div
-                        key={exp.id}
-                        onClick={() => setSelectedExpedition(exp)}
-                        className="group cursor-pointer overflow-hidden rounded-xl border border-line bg-white shadow-xs transition hover:border-ink/40 hover:shadow-md flex flex-col justify-between"
-                      >
-                        <div className="relative h-44 w-full bg-ink overflow-hidden">
-                          <img
-                            src={exp.coverPhoto}
-                            alt={exp.title}
-                            className="h-full w-full object-cover opacity-85 transition duration-500 group-hover:scale-105"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-ink/90 via-ink/30 to-transparent" />
-                          <div className="absolute top-3 left-3 flex gap-1.5">
-                            <span className="rounded-full bg-ink/70 backdrop-blur-xs px-2.5 py-0.5 text-[9px] font-semibold text-white">
-                              {exp.days.length} Days
-                            </span>
-                            <span className="rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold text-white">
-                              3 Budgets
-                            </span>
-                          </div>
-                          <div className="absolute bottom-3 left-3 right-3 text-white">
-                            <span className="text-[10px] text-white/80 font-mono block">{exp.region}</span>
-                            <h3 className="font-serif text-[15px] font-bold leading-snug line-clamp-1 group-hover:text-accent-soft transition">
-                              {exp.title}
-                            </h3>
-                          </div>
-                        </div>
-
-                        <div className="p-3.5 space-y-2.5">
-                          <p className="text-[11.5px] text-ink-soft line-clamp-2 leading-relaxed">
-                            {exp.subtitle}
-                          </p>
-
-                          <div className="flex items-center justify-between border-t border-line-soft pt-2.5 text-[10.5px]">
-                            <span className="font-mono text-ink-faint">
-                              Best: {exp.season}
-                            </span>
-                            <span className="font-semibold text-accent flex items-center gap-1 group-hover:translate-x-0.5 transition">
-                              Explore Circuit →
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
 
             {catalogView === "map" ? (
               <PropertyMap listings={visible} onOpen={openProperty} />
@@ -718,29 +605,14 @@ export function PropertiesApp({
           setNotice(`Trip Stop Booked: ${newReq.propertyTitle}`);
         }}
       />
-      {selectedExpedition && (
-        <ExpeditionModal
-          isOpen={Boolean(selectedExpedition)}
-          onClose={() => {
-            setSelectedExpedition(null);
-            if (window.location.hash.toLowerCase().includes("expedition")) {
-              window.history.replaceState(null, "", window.location.pathname || "/");
-            }
-          }}
-          expedition={selectedExpedition}
-          onRequestBooking={(newRequests) => {
-            saveRequests([...newRequests, ...requests]);
-            setRequests((prev) => [...newRequests, ...prev]);
-            for (const r of newRequests) {
-              saveRemoteRequest(r);
-            }
-            setNotice(`Booked all ${newRequests.length} circuit stays for ${selectedExpedition.title}!`);
-          }}
-        />
-      )}
       {notice && (
         <div className="animate-toast fixed bottom-5 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-[11px] font-medium text-white shadow-xl">
           <Check className="h-3.5 w-3.5" /> {notice}
+        </div>
+      )}
+      {storageWarning && (
+        <div className="animate-toast fixed bottom-14 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-[11px] font-medium text-white shadow-xl">
+          Browser storage quota reached.
         </div>
       )}
     </div>
