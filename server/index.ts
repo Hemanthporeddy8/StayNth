@@ -135,6 +135,10 @@ async function ensureTables(db: D1Database) {
       "CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, user_id TEXT, name TEXT NOT NULL, plan_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
     ).run();
 
+    await db.prepare(
+      "CREATE TABLE IF NOT EXISTS expeditions (id TEXT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT, region TEXT NOT NULL, season TEXT, vehicle_type TEXT, youtube_url TEXT, cover_photo TEXT, days_json TEXT NOT NULL, published INTEGER DEFAULT 1, created_at TEXT NOT NULL)"
+    ).run();
+
     tablesInitialized = true;
   } catch {
     tablesInitialized = true;
@@ -569,6 +573,85 @@ export default {
               .bind(body.status, id)
               .run();
           }
+          return json({ success: true, id });
+        }
+
+        // --- EXPEDITIONS (FOUNDER CURATED TRAILS) ENDPOINTS ---
+
+        // GET /api/expeditions
+        if (url.pathname === "/api/expeditions" && request.method === "GET") {
+          const showAll = url.searchParams.get("all") === "true";
+          const query = showAll
+            ? "SELECT * FROM expeditions ORDER BY created_at DESC"
+            : "SELECT * FROM expeditions WHERE published = 1 ORDER BY created_at DESC";
+          const { results } = await env.DB.prepare(query).all();
+          const expeditions = results.map((row: any) => ({
+            id: row.id,
+            title: row.title,
+            subtitle: row.subtitle || "",
+            region: row.region,
+            season: row.season || "",
+            vehicleType: row.vehicle_type || "Car / Bike",
+            youtubeUrl: row.youtube_url || "",
+            coverPhoto: row.cover_photo || "",
+            days: JSON.parse(row.days_json || "[]"),
+            published: Boolean(row.published),
+            createdAt: row.created_at,
+          }));
+          return json(expeditions);
+        }
+
+        // POST /api/expeditions (Create or Update)
+        if (url.pathname === "/api/expeditions" && request.method === "POST") {
+          const currentUser = await getUserFromRequest(request, env.DB);
+          if (!currentUser || (currentUser.role !== "founder" && currentUser.role !== "co_admin")) {
+            return json({ error: "Unauthorized: Admin privileges required" }, 401);
+          }
+
+          const body = (await request.json()) as any;
+          const id = body.id || "exp_" + crypto.randomUUID().slice(0, 8);
+          const now = body.createdAt || new Date().toISOString();
+
+          await env.DB.prepare(
+            `INSERT INTO expeditions (
+              id, title, subtitle, region, season, vehicle_type, youtube_url, cover_photo, days_json, published, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              title = excluded.title,
+              subtitle = excluded.subtitle,
+              region = excluded.region,
+              season = excluded.season,
+              vehicle_type = excluded.vehicle_type,
+              youtube_url = excluded.youtube_url,
+              cover_photo = excluded.cover_photo,
+              days_json = excluded.days_json,
+              published = excluded.published`
+          ).bind(
+            id,
+            body.title || "Untitled Expedition",
+            body.subtitle || "",
+            body.region || "Karnataka",
+            body.season || "",
+            body.vehicleType || "Car / Bike",
+            body.youtubeUrl || "",
+            body.coverPhoto || "",
+            JSON.stringify(body.days || []),
+            body.published ? 1 : 0,
+            now
+          ).run();
+
+          return json({ success: true, id });
+        }
+
+        // DELETE /api/expeditions/:id
+        if (url.pathname.startsWith("/api/expeditions/") && request.method === "DELETE") {
+          const currentUser = await getUserFromRequest(request, env.DB);
+          if (!currentUser || currentUser.role !== "founder") {
+            return json({ error: "Unauthorized: Founder only" }, 403);
+          }
+
+          const id = url.pathname.replace("/api/expeditions/", "");
+          await env.DB.prepare("DELETE FROM expeditions WHERE id = ?").bind(id).run();
           return json({ success: true, id });
         }
 

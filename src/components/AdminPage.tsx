@@ -19,6 +19,11 @@ import {
   ArrowLeft,
   QrCode,
   X,
+  Compass,
+  Plus,
+  Trash2,
+  Edit3,
+  Play,
 } from "lucide-react";
 import {
   loadReplicaOrders,
@@ -30,6 +35,14 @@ import {
   type PropertyListing,
 } from "@/lib/properties";
 import { loadFeatureFlags, saveFeatureFlags, type FeatureFlags } from "@/lib/featureFlags";
+import {
+  loadLocalExpeditions,
+  saveLocalExpeditions,
+  saveRemoteExpedition,
+  deleteRemoteExpedition,
+  type Expedition,
+  type ExpeditionDay,
+} from "@/lib/expeditions";
 import {
   getStoredToken,
   getStoredUser,
@@ -83,7 +96,7 @@ export function AdminPage({
   const [totpError, setTotpError] = useState(false);
 
   // Admin Console Active Tab
-  const [activeTab, setActiveTab] = useState<"drafting" | "flags" | "bookings" | "team">("drafting");
+  const [activeTab, setActiveTab] = useState<"drafting" | "flags" | "bookings" | "team" | "expeditions">("drafting");
   const [orders, setOrders] = useState<ReplicaOrder[]>(loadReplicaOrders);
   const [requests] = useState<PropertyRequest[]>(loadRequests);
   const [listings] = useState<PropertyListing[]>(loadListings);
@@ -91,6 +104,11 @@ export function AdminPage({
   const [selectedOrder, setSelectedOrder] = useState<ReplicaOrder | null>(null);
   const [viewingKycRequest, setViewingKycRequest] = useState<PropertyRequest | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Expeditions state
+  const [expeditions, setExpeditions] = useState<Expedition[]>(loadLocalExpeditions);
+  const [editingExpedition, setEditingExpedition] = useState<Expedition | null>(null);
+  const [expeditionEditorOpen, setExpeditionEditorOpen] = useState(false);
 
   // Team Management state
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -388,6 +406,91 @@ export function AdminPage({
     setTimeout(() => setNotice(null), 3000);
   };
 
+  const handleTogglePublishExpedition = async (id: string) => {
+    const updated = expeditions.map((e) => (e.id === id ? { ...e, published: !e.published } : e));
+    setExpeditions(updated);
+    saveLocalExpeditions(updated);
+    const target = updated.find((e) => e.id === id);
+    if (target) {
+      const token = getStoredToken();
+      await saveRemoteExpedition(target, token);
+      showToast(`${target.title} is now ${target.published ? "LIVE" : "DRAFT (HIDDEN)"}`);
+    }
+  };
+
+  const handleDeleteExpedition = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this expedition?")) return;
+    const token = getStoredToken();
+    await deleteRemoteExpedition(id, token);
+    const updated = expeditions.filter((e) => e.id !== id);
+    setExpeditions(updated);
+    saveLocalExpeditions(updated);
+    showToast("Expedition deleted");
+  };
+
+  const handleSaveExpedition = async (saved: Expedition) => {
+    const exists = expeditions.some((e) => e.id === saved.id);
+    const updated = exists ? expeditions.map((e) => (e.id === saved.id ? saved : e)) : [saved, ...expeditions];
+    setExpeditions(updated);
+    saveLocalExpeditions(updated);
+    const token = getStoredToken();
+    await saveRemoteExpedition(saved, token);
+    setEditingExpedition(null);
+    setExpeditionEditorOpen(false);
+    showToast(`Saved expedition: ${saved.title}`);
+  };
+
+  const handleCreateNewExpedition = () => {
+    const newExp: Expedition = {
+      id: "exp_" + Date.now().toString(36),
+      title: "New Curated Expedition",
+      subtitle: "Scouted and verified by Founder",
+      region: "Karnataka",
+      season: "October to March",
+      vehicleType: "Car / Bike",
+      youtubeUrl: "",
+      coverPhoto: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80",
+      published: true,
+      createdAt: new Date().toISOString(),
+      days: [
+        {
+          dayNumber: 1,
+          fromLocation: "Start City",
+          toLocation: "Destination Stop",
+          distanceKm: 250,
+          driveTime: "5 hrs",
+          highlights: ["Scenic Viewpoint", "Local Food Pitstop"],
+          founderTips: "Leave early to beat morning traffic. Scenic curves along the way.",
+          stays: {
+            backpacker: {
+              name: "Local Camping / Hostel",
+              type: "tent",
+              pricePerNight: 699,
+              photo: "https://images.unsplash.com/photo-1523987355523-c7b5b0dd90a7?auto=format&fit=crop&w=600&q=80",
+              features: ["Clean Tents", "Campfire"],
+            },
+            comfort: {
+              name: "Nature Resort Cottage",
+              type: "resort",
+              pricePerNight: 2600,
+              photo: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80",
+              features: ["AC Cottage", "Breakfast Included"],
+            },
+            luxury: {
+              name: "Private View Villa",
+              type: "villa",
+              pricePerNight: 8500,
+              photo: "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=600&q=80",
+              features: ["Private Deck", "Infinity Pool"],
+            },
+          },
+        },
+      ],
+    };
+    setEditingExpedition(newExp);
+    setExpeditionEditorOpen(true);
+  };
+
   const isFounder = adminUser?.role === "founder";
   const totalRevenue = orders.reduce((sum, o) => sum + (o.amount || 0), 0);
   const totalPlatformFees = requests.reduce((sum, r) => sum + (r.platformFee || 49), 0);
@@ -638,6 +741,20 @@ export function AdminPage({
                   )}
                 >
                   <Users className="h-3.5 w-3.5 text-accent" /> Team & Staff Access
+                </button>
+              )}
+
+              {isFounder && (
+                <button
+                  onClick={() => setActiveTab("expeditions")}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-medium transition",
+                    activeTab === "expeditions"
+                      ? "bg-ink text-white"
+                      : "text-ink-soft hover:bg-paper hover:text-ink"
+                  )}
+                >
+                  <Compass className="h-3.5 w-3.5 text-accent" /> Founder Expeditions ({expeditions.length})
                 </button>
               )}
             </div>
@@ -973,6 +1090,43 @@ export function AdminPage({
                       </button>
                     </div>
                   </div>
+
+                  {/* Founder Expeditions Switch */}
+                  <div className="rounded-xl border border-line bg-white p-5 shadow-xs transition hover:border-ink/20">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-[14px] font-semibold text-ink">
+                            Founder-Curated Expeditions & 3-Tier Trails
+                          </h3>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 font-mono text-[9px] font-bold uppercase",
+                              flags.founderExpeditions
+                                ? "bg-green-100 text-green-800"
+                                : "bg-neutral-100 text-neutral-600"
+                            )}
+                          >
+                            {flags.founderExpeditions ? "LIVE FOR ALL USERS" : "OFF / HIDDEN"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11.5px] leading-relaxed text-ink-soft">
+                          Displays your curated road trip circuits (with Backpacker, Comfort & Luxury options and YouTube vlog integration) on the marketplace.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => toggleFlag("founderExpeditions")}
+                        className="shrink-0 p-1 text-ink"
+                        aria-label="Toggle Founder Expeditions"
+                      >
+                        {flags.founderExpeditions ? (
+                          <ToggleRight className="h-9 w-9 text-accent" />
+                        ) : (
+                          <ToggleLeft className="h-9 w-9 text-ink-faint" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1112,7 +1266,523 @@ export function AdminPage({
                 </div>
               </div>
             )}
+
+            {/* TAB 5: FOUNDER EXPEDITIONS STUDIO */}
+            {activeTab === "expeditions" && isFounder && (
+              <div className="space-y-5">
+                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                  <div>
+                    <h2 className="font-serif text-[20px] font-bold text-ink">Founder Expeditions Studio</h2>
+                    <p className="text-[11.5px] text-ink-soft">
+                      Curate multi-stop travel circuits with 3 budget tiers (Backpacker, Comfort, Luxury) and link your YouTube scouting vlogs.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCreateNewExpedition}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-ink px-4 py-2 text-[11.5px] font-semibold text-white hover:bg-ink/90 transition shadow-xs"
+                  >
+                    <Plus className="h-4 w-4" /> Create New Expedition
+                  </button>
+                </div>
+
+                {expeditions.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-line bg-white py-16 text-center shadow-xs">
+                    <Compass className="mx-auto h-8 w-8 text-ink-faint" />
+                    <h3 className="mt-3 font-serif text-[18px] text-ink">No Expeditions Created Yet</h3>
+                    <p className="mt-1 text-[11.5px] text-ink-soft">
+                      Create your first scouting circuit to feature on the marketplace.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {expeditions.map((exp) => (
+                      <div
+                        key={exp.id}
+                        className="overflow-hidden rounded-2xl border border-line bg-white shadow-xs transition hover:border-ink/30 flex flex-col justify-between"
+                      >
+                        <div className="relative h-44 w-full bg-ink">
+                          <img
+                            src={exp.coverPhoto}
+                            alt={exp.title}
+                            className="h-full w-full object-cover opacity-80"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-ink/90 via-ink/40 to-transparent" />
+                          <div className="absolute bottom-3 left-4 right-4 text-white">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                                {exp.days.length} Days
+                              </span>
+                              <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9.5px] text-white">
+                                {exp.region}
+                              </span>
+                            </div>
+                            <h3 className="mt-1 text-[15px] font-bold leading-snug line-clamp-1">
+                              {exp.title}
+                            </h3>
+                          </div>
+                        </div>
+
+                        <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                          <p className="text-[11.5px] text-ink-soft line-clamp-2">
+                            {exp.subtitle}
+                          </p>
+
+                          <div className="flex flex-wrap gap-2 text-[10.5px] text-ink-faint font-mono">
+                            <span>Season: {exp.season}</span>
+                            <span>•</span>
+                            <span>Vehicle: {exp.vehicleType}</span>
+                          </div>
+
+                          <div className="border-t border-line pt-3 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePublishExpedition(exp.id)}
+                                className={cn(
+                                  "rounded-full px-2.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider",
+                                  exp.published
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-neutral-100 text-neutral-600"
+                                )}
+                              >
+                                {exp.published ? "● LIVE" : "○ DRAFT"}
+                              </button>
+                              {exp.youtubeUrl && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-red-600 font-medium">
+                                  <Play className="h-3 w-3 fill-red-600" /> Vlog Linked
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingExpedition(exp);
+                                  setExpeditionEditorOpen(true);
+                                }}
+                                className="rounded-lg border border-line bg-paper px-2.5 py-1 text-[11px] font-medium text-ink hover:bg-paper-deep"
+                              >
+                                <Edit3 className="h-3.5 w-3.5 inline mr-1" /> Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteExpedition(exp.id)}
+                                className="rounded-lg bg-red-50 p-1.5 text-red-700 hover:bg-red-100 border border-red-200"
+                                title="Delete expedition"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </main>
+        </div>
+      )}
+
+      {/* EXPEDITION EDITOR MODAL */}
+      {expeditionEditorOpen && editingExpedition && (
+        <div className="animate-fade fixed inset-0 z-50 flex items-center justify-center bg-ink/75 p-3 backdrop-blur-sm sm:p-5">
+          <div className="animate-pop flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-line px-5 py-4">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/15 text-accent">
+                  <Compass className="h-4.5 w-4.5" />
+                </span>
+                <div>
+                  <h3 className="font-serif text-[17px] font-bold text-ink">
+                    {editingExpedition.id ? "Edit Expedition Route" : "Create New Expedition"}
+                  </h3>
+                  <p className="text-[10.5px] text-ink-soft">Configure circuit details, day-by-day stops and 3 budget tiers</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingExpedition(null);
+                  setExpeditionEditorOpen(false);
+                }}
+                className="rounded-lg p-1.5 text-ink-faint hover:bg-paper-deep hover:text-ink"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="scroll-warm min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 space-y-5">
+              {/* Circuit Basic Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-medium text-ink-soft mb-1">
+                    Expedition Title
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingExpedition.title}
+                    onChange={(e) =>
+                      setEditingExpedition({ ...editingExpedition, title: e.target.value })
+                    }
+                    placeholder="e.g. 4-Day Coastal Karnataka & Rainforest Trail"
+                    className="h-9 w-full rounded-lg border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-medium text-ink-soft mb-1">
+                    Subtitle & Highlights Description
+                  </label>
+                  <input
+                    type="text"
+                    value={editingExpedition.subtitle}
+                    onChange={(e) =>
+                      setEditingExpedition({ ...editingExpedition, subtitle: e.target.value })
+                    }
+                    placeholder="e.g. Dandeli Jungle ➔ Murudeshwar Coast ➔ Gokarna Beaches"
+                    className="h-9 w-full rounded-lg border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-ink-soft mb-1">
+                    Region / State
+                  </label>
+                  <input
+                    type="text"
+                    value={editingExpedition.region}
+                    onChange={(e) =>
+                      setEditingExpedition({ ...editingExpedition, region: e.target.value })
+                    }
+                    placeholder="e.g. Western Ghats, Karnataka"
+                    className="h-9 w-full rounded-lg border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-ink-soft mb-1">
+                    Best Season to Visit
+                  </label>
+                  <input
+                    type="text"
+                    value={editingExpedition.season}
+                    onChange={(e) =>
+                      setEditingExpedition({ ...editingExpedition, season: e.target.value })
+                    }
+                    placeholder="e.g. October to March"
+                    className="h-9 w-full rounded-lg border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-ink-soft mb-1">
+                    Recommended Vehicle
+                  </label>
+                  <input
+                    type="text"
+                    value={editingExpedition.vehicleType}
+                    onChange={(e) =>
+                      setEditingExpedition({ ...editingExpedition, vehicleType: e.target.value })
+                    }
+                    placeholder="e.g. Car / Bike / SUV"
+                    className="h-9 w-full rounded-lg border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-ink-soft mb-1">
+                    YouTube Vlog Link (Optional)
+                  </label>
+                  <input
+                    type="url"
+                    value={editingExpedition.youtubeUrl}
+                    onChange={(e) =>
+                      setEditingExpedition({ ...editingExpedition, youtubeUrl: e.target.value })
+                    }
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="h-9 w-full rounded-lg border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-medium text-ink-soft mb-1">
+                    Cover Photo URL
+                  </label>
+                  <input
+                    type="url"
+                    value={editingExpedition.coverPhoto}
+                    onChange={(e) =>
+                      setEditingExpedition({ ...editingExpedition, coverPhoto: e.target.value })
+                    }
+                    placeholder="https://images.unsplash.com/..."
+                    className="h-9 w-full rounded-lg border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink"
+                  />
+                </div>
+              </div>
+
+              {/* Day-by-Day Editor */}
+              <div className="border-t border-line pt-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-ink text-[13px]">
+                    Day-by-Day Stops & 3-Tier Stays ({editingExpedition.days.length} Days)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextDayNum = editingExpedition.days.length + 1;
+                      const newDay: ExpeditionDay = {
+                        dayNumber: nextDayNum,
+                        fromLocation: "Previous Stop",
+                        toLocation: "Next Stop",
+                        distanceKm: 150,
+                        driveTime: "3.5 hrs",
+                        highlights: ["Scenic Viewpoint"],
+                        founderTips: "Great road conditions.",
+                        stays: {
+                          backpacker: {
+                            name: "Backpacker Tent / Camp",
+                            type: "tent",
+                            pricePerNight: 699,
+                            photo: "https://images.unsplash.com/photo-1523987355523-c7b5b0dd90a7?auto=format&fit=crop&w=600&q=80",
+                            features: ["Campfire", "Riverside"],
+                          },
+                          comfort: {
+                            name: "Comfort Nature Cottage",
+                            type: "cottage",
+                            pricePerNight: 2800,
+                            photo: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80",
+                            features: ["AC Cottage", "Breakfast"],
+                          },
+                          luxury: {
+                            name: "Luxury Resort Villa",
+                            type: "villa",
+                            pricePerNight: 8500,
+                            photo: "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=600&q=80",
+                            features: ["Private Pool", "Valley View"],
+                          },
+                        },
+                      };
+                      setEditingExpedition({
+                        ...editingExpedition,
+                        days: [...editingExpedition.days, newDay],
+                      });
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg bg-paper-deep px-3 py-1 text-[11px] font-semibold text-ink hover:bg-paper border border-line"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-accent" /> Add Day {editingExpedition.days.length + 1}
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {editingExpedition.days.map((day, dIdx) => (
+                    <div
+                      key={day.dayNumber}
+                      className="rounded-xl border border-line bg-paper/40 p-4 space-y-3"
+                    >
+                      <div className="flex items-center justify-between border-b border-line pb-2">
+                        <span className="font-bold text-ink text-[12.5px]">Day {day.dayNumber} Route</span>
+                        {editingExpedition.days.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updatedDays = editingExpedition.days.filter((_, i) => i !== dIdx);
+                              setEditingExpedition({ ...editingExpedition, days: updatedDays });
+                            }}
+                            className="text-[10.5px] text-red-600 hover:underline"
+                          >
+                            Remove Day
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-ink-faint">From</label>
+                          <input
+                            type="text"
+                            value={day.fromLocation}
+                            onChange={(e) => {
+                              const updated = [...editingExpedition.days];
+                              updated[dIdx].fromLocation = e.target.value;
+                              setEditingExpedition({ ...editingExpedition, days: updated });
+                            }}
+                            className="h-8 w-full rounded border border-line bg-white px-2 text-[11px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-ink-faint">To</label>
+                          <input
+                            type="text"
+                            value={day.toLocation}
+                            onChange={(e) => {
+                              const updated = [...editingExpedition.days];
+                              updated[dIdx].toLocation = e.target.value;
+                              setEditingExpedition({ ...editingExpedition, days: updated });
+                            }}
+                            className="h-8 w-full rounded border border-line bg-white px-2 text-[11px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-ink-faint">Distance (km)</label>
+                          <input
+                            type="number"
+                            value={day.distanceKm}
+                            onChange={(e) => {
+                              const updated = [...editingExpedition.days];
+                              updated[dIdx].distanceKm = Number(e.target.value);
+                              setEditingExpedition({ ...editingExpedition, days: updated });
+                            }}
+                            className="h-8 w-full rounded border border-line bg-white px-2 text-[11px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-ink-faint">Drive Time</label>
+                          <input
+                            type="text"
+                            value={day.driveTime}
+                            onChange={(e) => {
+                              const updated = [...editingExpedition.days];
+                              updated[dIdx].driveTime = e.target.value;
+                              setEditingExpedition({ ...editingExpedition, days: updated });
+                            }}
+                            className="h-8 w-full rounded border border-line bg-white px-2 text-[11px]"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-ink-faint">Founder Tips & Notes</label>
+                        <input
+                          type="text"
+                          value={day.founderTips}
+                          onChange={(e) => {
+                            const updated = [...editingExpedition.days];
+                            updated[dIdx].founderTips = e.target.value;
+                            setEditingExpedition({ ...editingExpedition, days: updated });
+                          }}
+                          placeholder="e.g. Leave early, eat at local pitstop..."
+                          className="h-8 w-full rounded border border-line bg-white px-2 text-[11px]"
+                        />
+                      </div>
+
+                      {/* 3 Budget Stays For Day */}
+                      <div className="pt-2">
+                        <span className="block text-[10.5px] font-semibold text-ink mb-1.5">
+                          Stays for Day {day.dayNumber} across 3 Budgets:
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          {/* Backpacker */}
+                          <div className="rounded-lg border border-line bg-white p-2 text-[10px] space-y-1">
+                            <span className="font-semibold text-ink">🎒 Backpacker</span>
+                            <input
+                              type="text"
+                              placeholder="Stay name"
+                              value={day.stays.backpacker?.name || ""}
+                              onChange={(e) => {
+                                const updated = [...editingExpedition.days];
+                                updated[dIdx].stays.backpacker.name = e.target.value;
+                                setEditingExpedition({ ...editingExpedition, days: updated });
+                              }}
+                              className="h-7 w-full rounded border border-line px-1.5 text-[10px]"
+                            />
+                            <input
+                              type="number"
+                              placeholder="₹/night"
+                              value={day.stays.backpacker?.pricePerNight || 0}
+                              onChange={(e) => {
+                                const updated = [...editingExpedition.days];
+                                updated[dIdx].stays.backpacker.pricePerNight = Number(e.target.value);
+                                setEditingExpedition({ ...editingExpedition, days: updated });
+                              }}
+                              className="h-7 w-full rounded border border-line px-1.5 text-[10px]"
+                            />
+                          </div>
+
+                          {/* Comfort */}
+                          <div className="rounded-lg border border-line bg-white p-2 text-[10px] space-y-1">
+                            <span className="font-semibold text-ink">🌿 Comfort</span>
+                            <input
+                              type="text"
+                              placeholder="Stay name"
+                              value={day.stays.comfort?.name || ""}
+                              onChange={(e) => {
+                                const updated = [...editingExpedition.days];
+                                updated[dIdx].stays.comfort.name = e.target.value;
+                                setEditingExpedition({ ...editingExpedition, days: updated });
+                              }}
+                              className="h-7 w-full rounded border border-line px-1.5 text-[10px]"
+                            />
+                            <input
+                              type="number"
+                              placeholder="₹/night"
+                              value={day.stays.comfort?.pricePerNight || 0}
+                              onChange={(e) => {
+                                const updated = [...editingExpedition.days];
+                                updated[dIdx].stays.comfort.pricePerNight = Number(e.target.value);
+                                setEditingExpedition({ ...editingExpedition, days: updated });
+                              }}
+                              className="h-7 w-full rounded border border-line px-1.5 text-[10px]"
+                            />
+                          </div>
+
+                          {/* Luxury */}
+                          <div className="rounded-lg border border-line bg-white p-2 text-[10px] space-y-1">
+                            <span className="font-semibold text-ink">👑 Luxury</span>
+                            <input
+                              type="text"
+                              placeholder="Stay name"
+                              value={day.stays.luxury?.name || ""}
+                              onChange={(e) => {
+                                const updated = [...editingExpedition.days];
+                                updated[dIdx].stays.luxury.name = e.target.value;
+                                setEditingExpedition({ ...editingExpedition, days: updated });
+                              }}
+                              className="h-7 w-full rounded border border-line px-1.5 text-[10px]"
+                            />
+                            <input
+                              type="number"
+                              placeholder="₹/night"
+                              value={day.stays.luxury?.pricePerNight || 0}
+                              onChange={(e) => {
+                                const updated = [...editingExpedition.days];
+                                updated[dIdx].stays.luxury.pricePerNight = Number(e.target.value);
+                                setEditingExpedition({ ...editingExpedition, days: updated });
+                              }}
+                              className="h-7 w-full rounded border border-line px-1.5 text-[10px]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingExpedition(null);
+                  setExpeditionEditorOpen(false);
+                }}
+                className="rounded-lg border border-line bg-paper px-4 py-2 text-[11px] font-medium text-ink hover:bg-paper-deep"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveExpedition(editingExpedition)}
+                className="rounded-lg bg-ink px-5 py-2 text-[11px] font-semibold text-white hover:bg-ink/90 shadow-sm"
+              >
+                Save & Update Circuit
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

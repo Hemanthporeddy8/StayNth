@@ -2,14 +2,16 @@ export interface FeatureFlags {
   roadTripPlanner: boolean;
   mobilitySponsors: boolean;
   fastTrackKyc: boolean;
+  founderExpeditions: boolean;
 }
 
 const FEATURE_FLAGS_KEY = "staynth.feature-flags.v1";
 
 const DEFAULT_FLAGS: FeatureFlags = {
-  roadTripPlanner: false, // OFF by default at launch
+  roadTripPlanner: false, // OFF by default
   mobilitySponsors: true,
   fastTrackKyc: true,
+  founderExpeditions: true, // LIVE by default for Founder Expeditions
 };
 
 export function loadFeatureFlags(): FeatureFlags {
