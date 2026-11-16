@@ -75,7 +75,16 @@ export default function App() {
     ) {
       return "admin";
     }
-    if (hash.startsWith("#property=")) {
+    if (
+      hash.startsWith("#property") ||
+      hash.startsWith("#expedition") ||
+      hash.startsWith("#trip") ||
+      hash === "#properties" ||
+      hash === "#marketplace" ||
+      path.startsWith("/properties") ||
+      path.startsWith("/marketplace") ||
+      path.startsWith("/expedition")
+    ) {
       return "properties";
     }
     return "studio";
@@ -92,7 +101,16 @@ export default function App() {
         hash.startsWith("#admin")
       ) {
         setSection("admin");
-      } else if (hash.startsWith("#property=")) {
+      } else if (
+        hash.startsWith("#property") ||
+        hash.startsWith("#expedition") ||
+        hash.startsWith("#trip") ||
+        hash === "#properties" ||
+        hash === "#marketplace" ||
+        path.startsWith("/properties") ||
+        path.startsWith("/marketplace") ||
+        path.startsWith("/expedition")
+      ) {
         setSection("properties");
       }
     };
