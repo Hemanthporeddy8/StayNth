@@ -139,6 +139,43 @@ async function ensureTables(db: D1Database) {
       "CREATE TABLE IF NOT EXISTS expeditions (id TEXT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT, region TEXT NOT NULL, season TEXT, vehicle_type TEXT, youtube_url TEXT, cover_photo TEXT, days_json TEXT NOT NULL, published INTEGER DEFAULT 1, created_at TEXT NOT NULL)"
     ).run();
 
+    // Safe SQLite schema migration: add newly introduced columns to existing tables if missing
+    const propertyColumns = [
+      "ALTER TABLE properties ADD COLUMN owner_id TEXT",
+      "ALTER TABLE properties ADD COLUMN owner_name TEXT DEFAULT 'Owner'",
+      "ALTER TABLE properties ADD COLUMN inventory_json TEXT DEFAULT '[]'",
+      "ALTER TABLE properties ADD COLUMN floor_plans_json TEXT DEFAULT '[]'",
+      "ALTER TABLE properties ADD COLUMN price_unit TEXT DEFAULT 'night'",
+      "ALTER TABLE properties ADD COLUMN beds INTEGER DEFAULT 1",
+      "ALTER TABLE properties ADD COLUMN verification TEXT DEFAULT 'unverified'",
+      "ALTER TABLE properties ADD COLUMN latitude REAL",
+      "ALTER TABLE properties ADD COLUMN longitude REAL",
+      "ALTER TABLE properties ADD COLUMN published INTEGER DEFAULT 1",
+      "ALTER TABLE properties ADD COLUMN featured INTEGER DEFAULT 0",
+      "ALTER TABLE properties ADD COLUMN rating REAL DEFAULT 5.0",
+      "ALTER TABLE properties ADD COLUMN reviews_count INTEGER DEFAULT 0",
+    ];
+    for (const sql of propertyColumns) {
+      try {
+        await db.prepare(sql).run();
+      } catch {
+        // column already exists, safely ignore
+      }
+    }
+
+    const requestColumns = [
+      "ALTER TABLE requests ADD COLUMN inventory_id TEXT",
+      "ALTER TABLE requests ADD COLUMN status TEXT DEFAULT 'pending'",
+      "ALTER TABLE requests ADD COLUMN total REAL DEFAULT 0",
+    ];
+    for (const sql of requestColumns) {
+      try {
+        await db.prepare(sql).run();
+      } catch {
+        // column already exists, safely ignore
+      }
+    }
+
     tablesInitialized = true;
   } catch {
     tablesInitialized = true;
@@ -148,32 +185,32 @@ async function ensureTables(db: D1Database) {
 function parsePropertyRow(row: any) {
   return {
     id: row.id,
-    ownerId: row.owner_id,
-    title: row.title,
-    type: row.type,
-    mode: row.mode,
-    location: row.location,
-    price: row.price,
-    priceUnit: row.price_unit,
-    bedrooms: row.bedrooms,
-    bathrooms: row.bathrooms,
-    beds: row.beds,
-    area: row.area,
-    description: row.description,
+    ownerId: row.owner_id || null,
+    title: row.title || "Untitled Property",
+    type: row.type || "house",
+    mode: row.mode || "stay",
+    location: row.location || "",
+    price: row.price || 0,
+    priceUnit: row.price_unit || "night",
+    bedrooms: row.bedrooms || 1,
+    bathrooms: row.bathrooms || 1,
+    beds: row.beds || 1,
+    area: row.area || 0,
+    description: row.description || "",
     amenities: JSON.parse(row.amenities_json || "[]"),
     photos: JSON.parse(row.photos_json || "[]"),
-    plan: JSON.parse(row.plan_json),
-    ownerName: row.owner_name,
-    verification: row.verification,
-    latitude: row.latitude,
-    longitude: row.longitude,
+    plan: row.plan_json ? JSON.parse(row.plan_json) : { width: 40, depth: 30, rooms: [], walls: [] },
+    ownerName: row.owner_name || "Owner",
+    verification: row.verification || "unverified",
+    latitude: row.latitude || null,
+    longitude: row.longitude || null,
     inventory: JSON.parse(row.inventory_json || "[]"),
     floorPlans: JSON.parse(row.floor_plans_json || "[]"),
-    published: Boolean(row.published),
-    featured: Boolean(row.featured),
-    rating: row.rating,
-    reviews: row.reviews_count,
-    createdAt: row.created_at,
+    published: Boolean(row.published ?? 1),
+    featured: Boolean(row.featured ?? 0),
+    rating: row.rating ?? 5.0,
+    reviews: row.reviews_count ?? 0,
+    createdAt: row.created_at || new Date().toISOString(),
     mine: false,
   };
 }

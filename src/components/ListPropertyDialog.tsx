@@ -14,11 +14,15 @@ import {
   AlertCircle,
   FileText,
   Camera,
+  ArrowLeft,
+  MapPin,
+  Crosshair,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { FOOTPRINT_PRESETS, clamp, generatePlan, parsePlanFile, splitFloors, uid } from "@/lib/plan";
 import { fileToRoomImage } from "@/lib/imageUpload";
 import { MiniPlan } from "@/components/Dialogs";
+import { LocationMapPicker } from "@/components/LocationMapPicker";
 import { peekDraft, saveDraft } from "@/lib/listingDraft";
 import {
   AMENITY_OPTIONS,
@@ -98,8 +102,47 @@ export function ListPropertyDialog({
   const [error, setError] = useState<string | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [draftingModalOpen, setDraftingModalOpen] = useState(false);
+  const [mapPickerOpen, setMapPickerOpen] = useState(false);
+  const [locating, setLocating] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const planFileRef = useRef<HTMLInputElement>(null);
+
+  const handleQuickGps = () => {
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setLatitude(lat.toFixed(5));
+        setLongitude(lng.toFixed(5));
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          if (res.ok) {
+            const data = await res.json();
+            const a = data.address || {};
+            const area = a.suburb || a.neighbourhood || a.residential || "";
+            const city = a.city || a.town || a.village || "";
+            const state = a.state || "";
+            const resolved = [area, city, state].filter(Boolean).join(", ");
+            if (resolved) setLocation(resolved);
+            else if (city) setLocation(city);
+          }
+        } catch {
+          // keep coordinates
+        }
+        setLocating(false);
+      },
+      (err) => {
+        setLocating(false);
+        setError("Could not get GPS position: " + err.message);
+      },
+      { timeout: 10000 }
+    );
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -260,85 +303,163 @@ export function ListPropertyDialog({
   ];
 
   return (
-    <div className="animate-fade fixed inset-0 z-[70] flex items-center justify-center bg-ink/45 p-2 backdrop-blur-sm sm:p-4">
-      <div className="animate-pop flex max-h-[96dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-paper shadow-2xl">
-        <div className="flex shrink-0 items-center justify-between border-b border-line bg-white px-5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <Building2 className="h-5 w-5" />
-            </span>
-            <div>
-              <h2 className="font-serif text-[24px] leading-tight text-ink">List your property</h2>
-              <p className="text-[11px] text-ink-soft">Details, photos and a floor plan — the 3D walkthrough is built from the plan.</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-ink-faint hover:bg-paper-deep hover:text-ink" aria-label="Close">
-            <X className="h-4 w-4" />
+    <div className="animate-fade fixed inset-0 z-[65] flex flex-col bg-paper">
+      {/* Full Page Top Bar */}
+      <div className="flex h-[62px] shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            onClick={onClose}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-medium text-ink-soft hover:bg-paper-deep transition shadow-2xs"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Back to properties</span>
           </button>
+          <div className="min-w-0">
+            <h1 className="truncate font-serif text-[18px] sm:text-[21px] font-semibold text-ink">
+              {title.trim() ? title : "List your property"}
+            </h1>
+            <p className="hidden sm:flex items-center gap-1.5 text-[10.5px] text-ink-faint">
+              <span>Host Studio</span> · <span>Floor Plan & 3D Walkthrough Builder</span>
+            </p>
+          </div>
         </div>
 
-        <div className="scroll-warm min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label className={label}>Property title</label>
-              <input value={title} onChange={(event) => setTitle(event.target.value)} className={input} placeholder="e.g. Palm Court Apartment" />
-            </div>
-            <div>
-              <label className={label}>Location</label>
-              <input value={location} onChange={(event) => setLocation(event.target.value)} className={input} placeholder="Neighborhood, city" />
-            </div>
-            <div>
-              <label className={label}>Property type</label>
-              <select
-                value={type}
-                onChange={(event) => {
-                  const next = event.target.value as PropertyType;
-                  setType(next);
-                  if (["hotel", "hostel", "dormitory", "pg"].includes(next) && !inventory.length) {
-                    setInventory([{ id: uid("inventory"), name: next === "hotel" ? "Deluxe room" : "Shared dorm bed", kind: next === "hotel" ? "room" : "bed", capacity: next === "hotel" ? 2 : 1, price, available: 1 }]);
-                  }
-                }}
-                className={input}
-              >
-                {Object.entries(PROPERTY_TYPE_LABEL).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={label}>Listing purpose</label>
-              <select
-                value={mode}
-                onChange={(event) => {
-                  const next = event.target.value as ListingMode;
-                  setMode(next);
-                  setPrice(next === "sale" ? 350000 : next === "rent" ? 1800 : 120);
-                }}
-                className={input}
-              >
-                <option value="stay">Nightly stay</option>
-                <option value="rent">Monthly rent</option>
-                <option value="sale">For sale</option>
-              </select>
-            </div>
-            <div>
-              <label className={label}>{mode === "sale" ? "Sale price ($)" : mode === "rent" ? "Monthly rent ($)" : "Nightly price ($)"}</label>
-              <input type="number" min={1} value={price} onChange={(event) => setPrice(Number(event.target.value))} className={input} />
-            </div>
-            <div>
-              <label className={label}>Total beds</label>
-              <input type="number" min={1} max={50} value={beds} onChange={(event) => setBeds(Number(event.target.value))} className={input} />
-            </div>
-          </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-line bg-white px-3.5 py-2 text-[11.5px] font-medium text-ink-soft hover:bg-paper transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={busy || planBusy}
+            className="flex items-center gap-1.5 rounded-lg bg-ink px-4 py-2 text-[11.5px] font-semibold text-white shadow-sm hover:bg-ink/90 transition disabled:opacity-50"
+          >
+            <Building2 className="h-3.5 w-3.5" />
+            <span>Publish listing</span>
+          </button>
+        </div>
+      </div>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className={label}>Latitude (optional)</label>
-              <input value={latitude} onChange={(event) => setLatitude(event.target.value)} className={input} placeholder="12.9716" inputMode="decimal" />
+      {/* Main Full Page Scrollable Body */}
+      <div className="scroll-warm flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-4 py-6 sm:px-8 sm:py-8 space-y-6">
+          <div className="rounded-2xl border border-line bg-white p-5 shadow-2xs space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className={label}>Property title *</label>
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className={cn(input, "text-[13px] font-medium")}
+                  placeholder="e.g. Palm Court Homestay, Gokarna or Indiranagar Studio"
+                />
+              </div>
+
+              {/* Enhanced Location Section with Map Picker & GPS */}
+              <div className="sm:col-span-2 rounded-xl border border-line/80 bg-paper-deep/40 p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                  <div>
+                    <label className={cn(label, "mb-0")}>Property Location *</label>
+                    <p className="text-[10px] text-ink-faint">Type your neighborhood/city, or use the interactive map pin</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleQuickGps}
+                      disabled={locating}
+                      className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 py-1 text-[10.5px] font-medium text-ink-soft hover:border-ink/40 transition shadow-2xs"
+                      title="Auto-detect current GPS coordinates"
+                    >
+                      {locating ? <Loader2 className="h-3 w-3 animate-spin text-accent" /> : <Crosshair className="h-3 w-3 text-accent" />}
+                      <span>{locating ? "Locating..." : "Use My GPS"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMapPickerOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent-soft/40 px-2.5 py-1 text-[10.5px] font-medium text-accent hover:bg-accent-soft transition shadow-2xs"
+                    >
+                      <MapPin className="h-3 w-3" />
+                      <span>📍 Pick on Map</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative mt-2">
+                  <input
+                    value={location}
+                    onChange={(event) => setLocation(event.target.value)}
+                    className={cn(input, "pl-8 text-[12px] bg-white")}
+                    placeholder="e.g. Kudle Beach, Gokarna or Indiranagar, Bengaluru"
+                  />
+                  <MapPin className="absolute left-2.5 top-2.5 h-4 w-4 text-ink-faint" />
+                </div>
+
+                <div className="mt-2.5 grid grid-cols-2 gap-3 pt-2 border-t border-line/60">
+                  <div>
+                    <span className="block font-mono text-[8.5px] uppercase tracking-wide text-ink-faint mb-1">Latitude (Auto from Map/GPS)</span>
+                    <input
+                      value={latitude}
+                      onChange={(e) => setLatitude(e.target.value)}
+                      className={cn(input, "font-mono text-[11px] bg-white")}
+                      placeholder="e.g. 14.5432"
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <div>
+                    <span className="block font-mono text-[8.5px] uppercase tracking-wide text-ink-faint mb-1">Longitude (Auto from Map/GPS)</span>
+                    <input
+                      value={longitude}
+                      onChange={(e) => setLongitude(e.target.value)}
+                      className={cn(input, "font-mono text-[11px] bg-white")}
+                      placeholder="e.g. 74.3189"
+                      inputMode="decimal"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className={label}>Property type</label>
+                <select
+                  value={type}
+                  onChange={(event) => {
+                    const next = event.target.value as PropertyType;
+                    setType(next);
+                    if (["hotel", "hostel", "dormitory", "pg"].includes(next) && !inventory.length) {
+                      setInventory([{ id: uid("inventory"), name: next === "hotel" ? "Deluxe Room" : "Shared Dorm Bed", kind: next === "hotel" ? "room" : "bed", capacity: next === "hotel" ? 2 : 1, price, available: 1 }]);
+                    }
+                  }}
+                  className={input}
+                >
+                  {Object.entries(PROPERTY_TYPE_LABEL).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={label}>Listing purpose</label>
+                <select
+                  value={mode}
+                  onChange={(event) => {
+                    const next = event.target.value as ListingMode;
+                    setMode(next);
+                    setPrice(next === "sale" ? 350000 : next === "rent" ? 1800 : 120);
+                  }}
+                  className={input}
+                >
+                  <option value="stay">Nightly stay</option>
+                  <option value="rent">Monthly rent</option>
+                  <option value="sale">For sale</option>
+                </select>
+              </div>
+              <div>
+                <label className={label}>{mode === "sale" ? "Sale price (₹)" : mode === "rent" ? "Monthly rent (₹)" : "Nightly price (₹)"}</label>
+                <input type="number" min={1} value={price} onChange={(event) => setPrice(Number(event.target.value))} className={input} />
+              </div>
+              <div>
+                <label className={label}>Total beds</label>
+                <input type="number" min={1} max={50} value={beds} onChange={(event) => setBeds(Number(event.target.value))} className={input} />
+              </div>
             </div>
-            <div>
-              <label className={label}>Longitude (optional)</label>
-              <input value={longitude} onChange={(event) => setLongitude(event.target.value)} className={input} placeholder="77.5946" inputMode="decimal" />
-            </div>
-            <p className="-mt-1 text-[9px] leading-relaxed text-ink-faint sm:col-span-2">Coordinates place the property on the real map. Leave blank if you do not want to publish an exact location.</p>
           </div>
 
           {["hotel", "hostel", "dormitory", "pg"].includes(type) && (
@@ -808,17 +929,32 @@ export function ListPropertyDialog({
             )}
           </div>
 
-          {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-700">{error}</p>}
+          {error && <p className="mt-4 rounded-xl bg-red-50 p-3 text-[11.5px] font-medium text-red-700 border border-red-200">{error}</p>}
         </div>
+      </div>
 
-        <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-line bg-white px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[10px] text-ink-faint">Local publishing — saved in this browser. You'll land on the new property.</p>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="flex-1 rounded-lg border border-line bg-white px-4 py-2 text-[12px] text-ink-soft sm:flex-none">Cancel</button>
-            <button onClick={submit} disabled={busy || planBusy} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ink px-4 py-2 text-[12px] font-medium text-white disabled:opacity-50 sm:flex-none">
-              <Building2 className="h-3.5 w-3.5" /> Publish listing
-            </button>
-          </div>
+      {/* Sticky Bottom Action Bar */}
+      <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-line bg-white px-4 py-3 sm:px-8 sm:flex-row sm:items-center sm:justify-between shadow-xs">
+        <p className="text-[11px] text-ink-faint">
+          Published directly to your device and synced with Cloudflare D1. Guests will see your listing immediately.
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 sm:flex-none rounded-lg border border-line bg-white px-4 py-2 text-[11.5px] font-medium text-ink-soft hover:bg-paper transition"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy || planBusy}
+            className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 rounded-lg bg-ink px-5 py-2 text-[11.5px] font-semibold text-white shadow-sm hover:bg-ink/90 transition disabled:opacity-50"
+          >
+            <Building2 className="h-3.5 w-3.5" />
+            <span>Publish listing</span>
+          </button>
         </div>
       </div>
 
@@ -827,6 +963,21 @@ export function ListPropertyDialog({
           initialTitle={title}
           initialLocation={location}
           onClose={() => setDraftingModalOpen(false)}
+        />
+      )}
+
+      {mapPickerOpen && (
+        <LocationMapPicker
+          initialLat={latitude.trim() ? Number(latitude) : undefined}
+          initialLng={longitude.trim() ? Number(longitude) : undefined}
+          initialLocation={location}
+          onSelect={(selectedLocation, selectedLat, selectedLng) => {
+            setLocation(selectedLocation);
+            setLatitude(selectedLat.toFixed(5));
+            setLongitude(selectedLng.toFixed(5));
+            setError(null);
+          }}
+          onClose={() => setMapPickerOpen(false)}
         />
       )}
     </div>
