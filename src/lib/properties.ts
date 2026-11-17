@@ -59,6 +59,7 @@ export interface RoomInventory {
   capacity: number;
   price: number;
   available: number;
+  photos?: PropertyPhoto[];
 }
 
 export interface PropertyReview {

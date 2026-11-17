@@ -92,6 +92,19 @@ export function PropertyDetail({
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const platformFee = listing.priceUnit === "night" ? 49 : 0;
 
+  // Active photos: if selected room inventory has specific photos, display them first
+  const displayPhotos = useMemo(() => {
+    const roomPhotos = selectedInventory?.photos?.length ? selectedInventory.photos : [];
+    if (!roomPhotos.length) return listing.photos;
+    const roomUrls = new Set(roomPhotos.map((p) => p.url));
+    const generalPhotos = listing.photos.filter((p) => !roomUrls.has(p.url));
+    return [...roomPhotos, ...generalPhotos];
+  }, [selectedInventory, listing.photos]);
+
+  useEffect(() => {
+    setPhotoIndex(0);
+  }, [inventoryId]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && view !== "3d") onClose();
@@ -260,16 +273,25 @@ export function PropertyDetail({
                 </div>
               ) : (
                 <div className="relative h-[340px] overflow-hidden rounded-2xl bg-paper-deep sm:h-[470px]">
-                  {listing.photos.length ? (
+                  {displayPhotos.length ? (
                     <>
-                      <img src={listing.photos[photoIndex]?.url} alt={listing.photos[photoIndex]?.alt} className="h-full w-full object-cover" />
-                      {listing.photos.length > 1 && (
+                      <img src={displayPhotos[photoIndex]?.url} alt={displayPhotos[photoIndex]?.alt} className="h-full w-full object-cover" />
+                      {displayPhotos.length > 1 && (
                         <>
-                          <button onClick={() => setPhotoIndex((photoIndex - 1 + listing.photos.length) % listing.photos.length)} className="absolute left-3 top-1/2 rounded-full bg-white/90 p-2.5 text-ink shadow-lg" aria-label="Previous photo"><ArrowLeft className="h-4 w-4" /></button>
-                          <button onClick={() => setPhotoIndex((photoIndex + 1) % listing.photos.length)} className="absolute right-3 top-1/2 rounded-full bg-white/90 p-2.5 text-ink shadow-lg" aria-label="Next photo"><ArrowRight className="h-4 w-4" /></button>
+                          <button onClick={() => setPhotoIndex((photoIndex - 1 + displayPhotos.length) % displayPhotos.length)} className="absolute left-3 top-1/2 rounded-full bg-white/90 p-2.5 text-ink shadow-lg" aria-label="Previous photo"><ArrowLeft className="h-4 w-4" /></button>
+                          <button onClick={() => setPhotoIndex((photoIndex + 1) % displayPhotos.length)} className="absolute right-3 top-1/2 rounded-full bg-white/90 p-2.5 text-ink shadow-lg" aria-label="Next photo"><ArrowRight className="h-4 w-4" /></button>
                         </>
                       )}
-                      <span className="absolute bottom-3 left-3 rounded-full bg-ink/60 px-2.5 py-1 font-mono text-[9px] text-white backdrop-blur">{photoIndex + 1} / {listing.photos.length}</span>
+                      <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+                        <span className="rounded-full bg-ink/75 px-2.5 py-1 font-mono text-[9px] text-white backdrop-blur">
+                          {photoIndex + 1} / {displayPhotos.length}
+                        </span>
+                        {selectedInventory?.photos?.some((p) => p.url === displayPhotos[photoIndex]?.url) && (
+                          <span className="rounded-full bg-accent px-2.5 py-1 font-mono text-[9px] font-semibold text-white shadow-xs backdrop-blur">
+                            {selectedInventory.name} Photo
+                          </span>
+                        )}
+                      </div>
                     </>
                   ) : (
                     <div className="flex h-full flex-col items-center justify-center text-center">
@@ -281,11 +303,23 @@ export function PropertyDetail({
                 </div>
               )}
 
-              {view === "photos" && listing.photos.length > 1 && (
+              {view === "photos" && displayPhotos.length > 1 && (
                 <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar">
-                  {listing.photos.map((photo, index) => (
-                    <button key={photo.url} onClick={() => setPhotoIndex(index)} className={cn("h-16 w-24 shrink-0 overflow-hidden rounded-lg border-2", index === photoIndex ? "border-accent" : "border-transparent opacity-65")}>
+                  {displayPhotos.map((photo, index) => (
+                    <button
+                      key={photo.url}
+                      onClick={() => setPhotoIndex(index)}
+                      className={cn(
+                        "relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border-2 transition",
+                        index === photoIndex ? "border-accent ring-2 ring-accent/30" : "border-transparent opacity-65 hover:opacity-100"
+                      )}
+                    >
                       <img src={photo.url} alt="" className="h-full w-full object-cover" />
+                      {selectedInventory?.photos?.some((p) => p.url === photo.url) && (
+                        <span className="absolute bottom-0.5 right-0.5 rounded bg-black/75 px-1 py-0.2 font-mono text-[7.5px] font-semibold text-white">
+                          Room
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -315,12 +349,49 @@ export function PropertyDetail({
               </div>
               {listing.inventory && listing.inventory.length > 0 && (
                 <div className="border-t border-line pt-5">
-                  <h3 className="text-[14px] font-semibold text-ink">Room & bed categories</h3>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[14px] font-semibold text-ink">Room & bed categories</h3>
+                    <span className="font-mono text-[9px] uppercase tracking-wide text-ink-faint">Select category to view photos & pricing</span>
+                  </div>
+                  <div className="mt-2.5 grid gap-2.5 sm:grid-cols-2">
                     {listing.inventory.map((item) => (
-                      <button key={item.id} onClick={() => setInventoryId(item.id)} className={cn("rounded-xl border p-3 text-left", inventoryId === item.id ? "border-accent bg-accent-soft/50" : "border-line bg-white")}>
-                        <span className="flex items-center justify-between text-[12px] font-semibold text-ink"><span>{item.name}</span><span>${item.price}</span></span>
-                        <span className="mt-1 block text-[10px] text-ink-faint">Sleeps {item.capacity} · {item.available} available</span>
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setInventoryId(item.id);
+                          setView("photos");
+                        }}
+                        className={cn(
+                          "flex items-center gap-3 rounded-xl border p-2.5 text-left transition",
+                          inventoryId === item.id ? "border-accent bg-accent-soft/40 shadow-xs ring-1 ring-accent" : "border-line bg-white hover:border-ink/20 hover:bg-paper"
+                        )}
+                      >
+                        {item.photos && item.photos[0] ? (
+                          <img
+                            src={item.photos[0].url}
+                            alt={item.name}
+                            className="h-14 w-16 shrink-0 rounded-lg object-cover border border-line/60"
+                          />
+                        ) : (
+                          <div className="flex h-14 w-16 shrink-0 items-center justify-center rounded-lg border border-line/60 bg-paper-deep text-ink-faint">
+                            <BedDouble className="h-5 w-5" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <span className="flex items-center justify-between gap-1 text-[12px] font-semibold text-ink">
+                            <span className="truncate">{item.name}</span>
+                            <span className="shrink-0 font-mono text-accent">₹{item.price.toLocaleString()}</span>
+                          </span>
+                          <span className="mt-0.5 block text-[10px] text-ink-faint">
+                            Sleeps {item.capacity} · {item.available} room{item.available !== 1 ? "s" : ""} available
+                          </span>
+                          {item.photos && item.photos.length > 0 && (
+                            <span className="mt-1 inline-flex items-center gap-1 font-mono text-[8.5px] text-ink-soft">
+                              <Camera className="h-2.5 w-2.5 text-ink-faint" /> {item.photos.length} room photo{item.photos.length > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -514,7 +585,7 @@ export function PropertyDetail({
 
                     <div className="mt-4 space-y-2.5">
                       {listing.inventory && listing.inventory.length > 0 && (
-                        <label className="block"><span className="mb-1 block font-mono text-[8.5px] uppercase tracking-wide text-ink-faint">Room category</span><select value={inventoryId} onChange={(event) => setInventoryId(event.target.value)} className={field}>{listing.inventory.map((item) => <option key={item.id} value={item.id}>{item.name} · ${item.price}</option>)}</select></label>
+                        <label className="block"><span className="mb-1 block font-mono text-[8.5px] uppercase tracking-wide text-ink-faint">Room category</span><select value={inventoryId} onChange={(event) => setInventoryId(event.target.value)} className={field}>{listing.inventory.map((item) => <option key={item.id} value={item.id}>{item.name} · ₹{item.price.toLocaleString()}</option>)}</select></label>
                       )}
                       <div className="grid grid-cols-2 gap-2">
                         <label className={listing.priceUnit === "night" ? "" : "col-span-2"}>

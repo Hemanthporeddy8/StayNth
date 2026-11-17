@@ -13,6 +13,7 @@ import {
   X,
   AlertCircle,
   FileText,
+  Camera,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { FOOTPRINT_PRESETS, clamp, generatePlan, parsePlanFile, splitFloors, uid } from "@/lib/plan";
@@ -31,6 +32,16 @@ import {
   type ReplicaOrder,
 } from "@/lib/properties";
 import { cn } from "@/utils/cn";
+
+export const ROOM_CATEGORY_PRESETS = [
+  { label: "🛏️ Deluxe Room (AC)", name: "Deluxe AC Room", kind: "room" as const, capacity: 2 },
+  { label: "🌿 Standard Room (Non-AC)", name: "Standard Room", kind: "room" as const, capacity: 2 },
+  { label: "👑 Executive Sea-View Suite", name: "Executive Sea-View Suite", kind: "room" as const, capacity: 3 },
+  { label: "🎒 Shared Mixed Dorm Bed", name: "Shared Mixed Dorm Bed", kind: "dorm" as const, capacity: 1 },
+  { label: "🌸 Female Dorm Bed", name: "Female Dorm Bed", kind: "dorm" as const, capacity: 1 },
+  { label: "🏡 Private Cottage / Villa", name: "Private Cottage", kind: "room" as const, capacity: 4 },
+  { label: "✍️ Custom Category...", name: "", kind: "room" as const, capacity: 2 },
+];
 
 const input =
   "h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[12px] text-ink outline-none transition focus:border-ink/40 focus:ring-2 focus:ring-ink/5";
@@ -331,24 +342,237 @@ export function ListPropertyDialog({
           </div>
 
           {["hotel", "hostel", "dormitory", "pg"].includes(type) && (
-            <div className="mt-4 rounded-xl border border-line bg-white p-3">
-              <div className="flex items-center justify-between">
-                <label className="font-mono text-[9px] uppercase tracking-wide text-ink-faint">Room & bed inventory</label>
+            <div className="mt-4 rounded-xl border border-line bg-white p-3.5">
+              <div className="flex items-center justify-between border-b border-line pb-2.5">
+                <div>
+                  <label className="font-mono text-[9px] uppercase tracking-wide text-ink-faint block">Room & bed categories</label>
+                  <p className="text-[10px] text-ink-soft">Select standard category presets or custom name. Specific room photos are optional.</p>
+                </div>
                 <button
-                  onClick={() => setInventory((current) => [...current, { id: uid("inventory"), name: "New category", kind: type === "hotel" ? "room" : "bed", capacity: 1, price, available: 1 }])}
-                  className="text-[10px] font-medium text-accent"
+                  type="button"
+                  onClick={() =>
+                    setInventory((current) => [
+                      ...current,
+                      {
+                        id: uid("inventory"),
+                        name: "Deluxe AC Room",
+                        kind: type === "hotel" ? "room" : "bed",
+                        capacity: 2,
+                        price,
+                        available: 1,
+                      },
+                    ])
+                  }
+                  className="rounded-lg bg-paper-deep border border-line px-2.5 py-1 text-[10.5px] font-semibold text-accent hover:bg-paper transition"
                 >
                   + Add category
                 </button>
               </div>
-              <div className="mt-2 space-y-2">
+
+              <div className="mt-3 space-y-3">
                 {inventory.map((item) => (
-                  <div key={item.id} className="grid grid-cols-[1fr_54px_66px_54px_24px] items-end gap-1.5">
-                    <label><span className="mb-1 block text-[8px] text-ink-faint">Name</span><input value={item.name} onChange={(event) => setInventory((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value } : entry))} className="h-8 w-full rounded-md border border-line px-1.5 text-[10px]" /></label>
-                    <label><span className="mb-1 block text-[8px] text-ink-faint">Capacity</span><input type="number" min={1} value={item.capacity} onChange={(event) => setInventory((current) => current.map((entry) => entry.id === item.id ? { ...entry, capacity: Number(event.target.value) } : entry))} className="h-8 w-full rounded-md border border-line px-1 text-[10px]" /></label>
-                    <label><span className="mb-1 block text-[8px] text-ink-faint">Price</span><input type="number" min={1} value={item.price} onChange={(event) => setInventory((current) => current.map((entry) => entry.id === item.id ? { ...entry, price: Number(event.target.value) } : entry))} className="h-8 w-full rounded-md border border-line px-1 text-[10px]" /></label>
-                    <label><span className="mb-1 block text-[8px] text-ink-faint">Available</span><input type="number" min={0} value={item.available} onChange={(event) => setInventory((current) => current.map((entry) => entry.id === item.id ? { ...entry, available: Number(event.target.value) } : entry))} className="h-8 w-full rounded-md border border-line px-1 text-[10px]" /></label>
-                    <button onClick={() => setInventory((current) => current.filter((entry) => entry.id !== item.id))} className="flex h-8 items-center justify-center text-ink-faint hover:text-red-600" aria-label="Remove category"><X className="h-3.5 w-3.5" /></button>
+                  <div key={item.id} className="rounded-xl border border-line bg-paper-deep/50 p-2.5 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-[150px_1fr_54px_66px_54px_24px] items-end gap-1.5">
+                      {/* Preset Dropdown */}
+                      <label>
+                        <span className="mb-1 block text-[8px] font-mono uppercase text-ink-faint">Preset</span>
+                        <select
+                          value={ROOM_CATEGORY_PRESETS.some((p) => p.name === item.name) ? item.name : "custom"}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "custom") return;
+                            const found = ROOM_CATEGORY_PRESETS.find((p) => p.name === val);
+                            if (found) {
+                              setInventory((current) =>
+                                current.map((entry) =>
+                                  entry.id === item.id
+                                    ? { ...entry, name: found.name, capacity: found.capacity, kind: found.kind }
+                                    : entry
+                                )
+                              );
+                            }
+                          }}
+                          className="h-8 w-full rounded-md border border-line bg-white px-1.5 text-[10px] font-medium text-ink"
+                        >
+                          {ROOM_CATEGORY_PRESETS.map((preset) => (
+                            <option key={preset.label} value={preset.name || "custom"}>
+                              {preset.label}
+                            </option>
+                          ))}
+                          {!ROOM_CATEGORY_PRESETS.some((p) => p.name === item.name) && (
+                            <option value="custom">✍️ {item.name || "Custom"}</option>
+                          )}
+                        </select>
+                      </label>
+
+                      {/* Name input */}
+                      <label>
+                        <span className="mb-1 block text-[8px] font-mono uppercase text-ink-faint">Room Title</span>
+                        <input
+                          value={item.name}
+                          onChange={(event) =>
+                            setInventory((current) =>
+                              current.map((entry) =>
+                                entry.id === item.id ? { ...entry, name: event.target.value } : entry
+                              )
+                            )
+                          }
+                          placeholder="e.g. Deluxe Room"
+                          className="h-8 w-full rounded-md border border-line bg-white px-2 text-[10.5px] text-ink"
+                        />
+                      </label>
+
+                      {/* Capacity */}
+                      <label>
+                        <span className="mb-1 block text-[8px] font-mono uppercase text-ink-faint text-center">Guests</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={item.capacity}
+                          onChange={(event) =>
+                            setInventory((current) =>
+                              current.map((entry) =>
+                                entry.id === item.id ? { ...entry, capacity: Number(event.target.value) } : entry
+                              )
+                            )
+                          }
+                          className="h-8 w-full rounded-md border border-line bg-white px-1 text-[10.5px] text-center text-ink"
+                        />
+                      </label>
+
+                      {/* Price */}
+                      <label>
+                        <span className="mb-1 block text-[8px] font-mono uppercase text-ink-faint text-center">Tariff (₹)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={item.price}
+                          onChange={(event) =>
+                            setInventory((current) =>
+                              current.map((entry) =>
+                                entry.id === item.id ? { ...entry, price: Number(event.target.value) } : entry
+                              )
+                            )
+                          }
+                          className="h-8 w-full rounded-md border border-line bg-white px-1 text-[10.5px] text-center text-ink font-mono"
+                        />
+                      </label>
+
+                      {/* Available count */}
+                      <label>
+                        <span className="mb-1 block text-[8px] font-mono uppercase text-ink-faint text-center">Rooms</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.available}
+                          onChange={(event) =>
+                            setInventory((current) =>
+                              current.map((entry) =>
+                                entry.id === item.id ? { ...entry, available: Number(event.target.value) } : entry
+                              )
+                            )
+                          }
+                          className="h-8 w-full rounded-md border border-line bg-white px-1 text-[10.5px] text-center text-ink font-mono"
+                        />
+                      </label>
+
+                      {/* Remove Button */}
+                      <button
+                        type="button"
+                        onClick={() => setInventory((current) => current.filter((entry) => entry.id !== item.id))}
+                        className="flex h-8 items-center justify-center text-ink-faint hover:text-red-600 transition"
+                        aria-label="Remove category"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Category Room Photos (Optional) */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-line/60">
+                      {item.photos && item.photos.length > 0 ? (
+                        <div className="flex items-center gap-2">
+                          {item.photos.map((p, pIdx) => (
+                            <div key={pIdx} className="relative h-9 w-12 rounded border border-line overflow-hidden group shadow-2xs">
+                              <img src={p.url} alt={p.alt} className="h-full w-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInventory((current) =>
+                                    current.map((entry) =>
+                                      entry.id === item.id
+                                        ? { ...entry, photos: entry.photos?.filter((_, i) => i !== pIdx) }
+                                        : entry
+                                    )
+                                  );
+                                }}
+                                className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-[9px]"
+                                title="Remove photo"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                          {item.photos.length < 3 && (
+                            <label className="flex h-9 items-center gap-1 rounded border border-dashed border-line bg-white px-2 text-[9.5px] text-ink-soft cursor-pointer hover:border-accent hover:text-accent transition">
+                              <Camera className="h-3 w-3" />
+                              <span>+ Add Photo</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const f = e.target.files?.[0];
+                                  if (!f) return;
+                                  try {
+                                    const img = await fileToRoomImage(f);
+                                    setInventory((curr) =>
+                                      curr.map((entry) =>
+                                        entry.id === item.id
+                                          ? { ...entry, photos: [...(entry.photos || []), { url: img.url, alt: `${item.name} photo` }] }
+                                          : entry
+                                      )
+                                    );
+                                  } catch {
+                                    setError("Could not process category image");
+                                  }
+                                  e.target.value = "";
+                                }}
+                              />
+                            </label>
+                          )}
+                        </div>
+                      ) : (
+                        <label className="flex items-center gap-1.5 text-[10px] text-indigo-700 hover:text-indigo-900 cursor-pointer font-medium py-0.5">
+                          <Camera className="h-3 w-3 text-indigo-600" />
+                          <span>+ Attach Room Photos (Bed / Bath · Optional)</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || []).slice(0, 3);
+                              if (!files.length) return;
+                              try {
+                                const uploadedList: PropertyPhoto[] = [];
+                                for (const f of files) {
+                                  const img = await fileToRoomImage(f);
+                                  uploadedList.push({ url: img.url, alt: `${item.name} photo` });
+                                }
+                                setInventory((curr) =>
+                                  curr.map((entry) =>
+                                    entry.id === item.id ? { ...entry, photos: uploadedList } : entry
+                                  )
+                                );
+                              } catch {
+                                setError("Could not process category image");
+                              }
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
