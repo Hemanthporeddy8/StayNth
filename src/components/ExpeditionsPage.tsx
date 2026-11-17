@@ -196,6 +196,8 @@ export function ExpeditionsPage({
   const [companionActive, setCompanionActive] = useState<boolean>(() => {
     return localStorage.getItem("staynth.companion.active") === "true";
   });
+  const [travelPace, setTravelPace] = useState<"relaxed" | "timed">("relaxed");
+  const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({});
   const [activeOfflineAlert, setActiveOfflineAlert] = useState<{
     title: string;
     milestoneTitle: string;
@@ -785,13 +787,48 @@ export function ExpeditionsPage({
             <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* LEFT COLUMN: Day-by-Day Journey & Stays (8 cols) */}
               <div className="lg:col-span-7 xl:col-span-8 space-y-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-serif text-[22px] font-bold text-ink">
-                    Day-by-Day Journey & Verified Stays
-                  </h2>
-                  <span className="font-mono text-[11px] text-ink-faint">
-                    {selectedExpedition.days.length} Days • {totalKm} km
-                  </span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-4">
+                  <div>
+                    <h2 className="font-serif text-[22px] font-bold text-ink">
+                      Day-by-Day Journey & Verified Stays
+                    </h2>
+                    <span className="font-mono text-[11px] text-ink-faint">
+                      {selectedExpedition.days.length} Days • {totalKm} km
+                    </span>
+                  </div>
+
+                  {/* Travel Pace Switcher (Relaxed vs Timed) */}
+                  <div className="flex items-center gap-1 rounded-xl border border-line bg-paper-deep p-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTravelPace("relaxed");
+                        setExpandedDays({});
+                      }}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition",
+                        travelPace === "relaxed"
+                          ? "bg-white text-ink shadow-2xs"
+                          : "text-ink-soft hover:text-ink"
+                      )}
+                      title="Travel at your own pace without scheduled time pressure"
+                    >
+                      <span>🌿 Relaxed Mode</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTravelPace("timed")}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition",
+                        travelPace === "timed"
+                          ? "bg-white text-ink shadow-2xs"
+                          : "text-ink-soft hover:text-ink"
+                      )}
+                      title="Show hour-by-hour milestones and offline alerts across all days"
+                    >
+                      <span>⏱️ Timed Mode</span>
+                    </button>
+                  </div>
                 </div>
 
                 {selectedExpedition.days.map((day: ExpeditionDay, dayIdx: number) => {
@@ -937,12 +974,35 @@ export function ExpeditionsPage({
                           )}
 
                           {/* ============================================================ */}
-                          {/* HOUR-BY-HOUR OFFLINE TREK & ROUTE SCHEDULE                   */}
+                          {/* HOUR-BY-HOUR OFFLINE TREK & ROUTE SCHEDULE (OPTIONAL)        */}
                           {/* ============================================================ */}
                           {day.schedule && day.schedule.length > 0 && (() => {
+                            const isExpanded = travelPace === "timed" || Boolean(expandedDays[day.dayNumber]);
                             const completedCount = day.schedule.filter((m) => checkins[m.id]).length;
                             const totalCount = day.schedule.length;
                             const percentComplete = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+                            if (!isExpanded) {
+                              return (
+                                <div className="mt-4 pt-3.5 border-t border-line flex flex-wrap items-center justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedDays((prev) => ({ ...prev, [day.dayNumber]: true }))}
+                                    className="flex items-center gap-2 rounded-xl border border-indigo-200/80 bg-indigo-50/70 hover:bg-indigo-100/70 px-3.5 py-2 text-[11.5px] font-semibold text-indigo-900 transition group shadow-2xs"
+                                  >
+                                    <Clock className="h-3.5 w-3.5 text-indigo-600" />
+                                    <span>View Hour-by-Hour Stops & Offline Alerts</span>
+                                    <span className="rounded-full bg-white border border-indigo-200 px-2 py-0.5 font-mono text-[9px] font-bold text-indigo-700">
+                                      {day.schedule.length} stops
+                                    </span>
+                                    <span className="text-[10px] text-indigo-500 group-hover:translate-y-0.5 transition">▼</span>
+                                  </button>
+                                  <span className="font-mono text-[10.5px] text-ink-faint hidden sm:inline">
+                                    🌿 Relaxed Mode • Tap only if you want strict timing
+                                  </span>
+                                </div>
+                              );
+                            }
 
                             return (
                               <div className="mt-5 rounded-2xl border-2 border-indigo-500/25 bg-gradient-to-br from-indigo-50/40 via-white to-blue-50/30 p-4 sm:p-5 shadow-xs">
@@ -1001,6 +1061,20 @@ export function ExpeditionsPage({
                                         <span>Reset</span>
                                       </button>
                                     )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (travelPace === "timed") {
+                                          setTravelPace("relaxed");
+                                        }
+                                        setExpandedDays((prev) => ({ ...prev, [day.dayNumber]: false }));
+                                      }}
+                                      className="flex items-center gap-1 rounded-lg border border-line bg-white px-2.5 py-1.5 text-[10.5px] font-medium text-ink-soft hover:bg-paper-deep transition shadow-2xs"
+                                      title="Collapse hour-by-hour schedule for this day"
+                                    >
+                                      <span>Hide ▲</span>
+                                    </button>
                                   </div>
                                 </div>
 
