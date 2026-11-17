@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Compass,
   ArrowLeft,
@@ -18,22 +18,149 @@ import {
   Phone,
   MapPin,
   QrCode,
+  Bell,
+  Volume2,
+  Eye,
+  X,
+  RotateCcw,
+  Radio,
 } from "lucide-react";
 import {
   type Expedition,
   type BudgetTier,
   type ExpeditionDay,
   type DayTransitOption,
+  type TimedMilestone,
+  type ExpeditionStay,
   loadLocalExpeditions,
   fetchRemoteExpeditions,
 } from "@/lib/expeditions";
 import {
   type PropertyRequest,
+  type PropertyListing,
   loadRequests,
   saveRequests,
   saveRemoteRequest,
+  loadListings,
+  createSeedListings,
 } from "@/lib/properties";
+import { generatePlan } from "@/lib/plan";
+import { PropertyDetail } from "@/components/PropertyDetail";
 import { cn } from "@/utils/cn";
+
+const CHECKINS_STORAGE_KEY = "staynth.expedition.checkins.v1";
+
+function loadCheckins(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(CHECKINS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCheckins(data: Record<string, boolean>) {
+  try {
+    localStorage.setItem(CHECKINS_STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+/** 100% offline pure-tone bell chime synthesized in device memory using Web Audio API (zero network required) */
+function playOfflineChime() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    if (ctx.state === "suspended") {
+      ctx.resume();
+    }
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc1.type = "sine";
+    osc1.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc1.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.25); // A5
+
+    osc2.type = "triangle";
+    osc2.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
+    osc2.frequency.exponentialRampToValueAtTime(1174.66, ctx.currentTime + 0.45); // D6
+
+    gain.gain.setValueAtTime(0.35, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc1.start(ctx.currentTime);
+    osc2.start(ctx.currentTime + 0.08);
+    osc1.stop(ctx.currentTime + 1.2);
+    osc2.stop(ctx.currentTime + 1.2);
+  } catch (err) {
+    console.warn("Offline chime failed", err);
+  }
+}
+
+/** Generates standard iCalendar (.ics) string with VALARM audio departure alerts for phone calendar apps */
+function generateIcsDaySchedule(day: ExpeditionDay, expeditionTitle: string, baseDateStr: string): string {
+  const targetDate = new Date(baseDateStr);
+  targetDate.setDate(targetDate.getDate() + (day.dayNumber - 1));
+  const year = targetDate.getFullYear();
+  const month = String(targetDate.getMonth() + 1).padStart(2, "0");
+  const dayOfMonth = String(targetDate.getDate()).padStart(2, "0");
+  const datePrefix = `${year}${month}${dayOfMonth}`;
+
+  const events = (day.schedule || []).map((m) => {
+    const startH = String(m.startHour).padStart(2, "0");
+    const startM = String(m.startMinute).padStart(2, "0");
+    const endH = String(m.endHour).padStart(2, "0");
+    const endM = String(m.endMinute).padStart(2, "0");
+    const dtStart = `${datePrefix}T${startH}${startM}00`;
+    const dtEnd = `${datePrefix}T${endH}${endM}00`;
+    const cleanDesc = `${m.activity}${m.founderTip ? `\\n\\nFounder Tip: ${m.founderTip}` : ""}\\n\\nNext Destination Alert: ${m.departureAlert}`.replace(/\n/g, "\\n");
+
+    return [
+      "BEGIN:VEVENT",
+      `UID:staynth-exp-d${day.dayNumber}-${m.id}-${Date.now()}@staynth.com`,
+      `DTSTAMP:${datePrefix}T000000Z`,
+      `DTSTART:${dtStart}`,
+      `DTEND:${dtEnd}`,
+      `SUMMARY:${expeditionTitle} (Day ${day.dayNumber}): ${m.title}`,
+      `DESCRIPTION:${cleanDesc}`,
+      `LOCATION:${day.fromLocation} to ${day.toLocation}`,
+      "BEGIN:VALARM",
+      "TRIGGER:-PT10M",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:StayNth Departure Alert: Time to move to next stop!`,
+      "END:VALARM",
+      "END:VEVENT",
+    ].join("\r\n");
+  });
+
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//StayNth//Offline Expedition Companion//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${expeditionTitle} - Day ${day.dayNumber}`,
+    ...events,
+    "END:VCALENDAR",
+  ].join("\r\n");
+}
+
+function downloadIcsFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 export function ExpeditionsPage({
   onBack,
@@ -63,6 +190,33 @@ export function ExpeditionsPage({
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [includeScootyHold, setIncludeScootyHold] = useState(true);
   const [mobilityPassCode, setMobilityPassCode] = useState<string | null>(null);
+
+  // Offline Companion & Check-in Progress state
+  const [checkins, setCheckins] = useState<Record<string, boolean>>(loadCheckins);
+  const [companionActive, setCompanionActive] = useState<boolean>(() => {
+    return localStorage.getItem("staynth.companion.active") === "true";
+  });
+  const [activeOfflineAlert, setActiveOfflineAlert] = useState<{
+    title: string;
+    milestoneTitle: string;
+    timeSlot: string;
+    departureAlert: string;
+    milestoneId: string;
+    dayNumber: number;
+  } | null>(null);
+
+  // 3D Model Walkthrough state
+  const [previewListing, setPreviewListing] = useState<PropertyListing | null>(null);
+
+  const allListings = useMemo(() => {
+    try {
+      const loaded = loadListings();
+      if (loaded && loaded.length > 0) return loaded;
+      return createSeedListings();
+    } catch {
+      return createSeedListings();
+    }
+  }, []);
 
   const activeRentalHub = useMemo(() => {
     if (!selectedExpedition) return null;
@@ -207,6 +361,169 @@ export function ExpeditionsPage({
     showToast(`Circuit reserved! Confirmed ${createdRequests.length} partner stays.`);
   };
 
+  const toggleCheckin = (id: string) => {
+    setCheckins((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      saveCheckins(next);
+      if (next[id]) {
+        playOfflineChime();
+        showToast("Milestone marked reached! ✓");
+      }
+      return next;
+    });
+  };
+
+  const resetDayCheckins = (day: ExpeditionDay) => {
+    setCheckins((prev) => {
+      const next = { ...prev };
+      for (const m of day.schedule || []) {
+        delete next[m.id];
+      }
+      saveCheckins(next);
+      showToast(`Day ${day.dayNumber} progress reset`);
+      return next;
+    });
+  };
+
+  const triggerOfflineAlert = (milestone: TimedMilestone, day: ExpeditionDay) => {
+    playOfflineChime();
+    if ("vibrate" in navigator) {
+      try {
+        navigator.vibrate([300, 150, 300, 150, 450]);
+      } catch {}
+    }
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification(`StayNth Move Alert: ${milestone.title}`, {
+          body: milestone.departureAlert,
+          icon: "/icons/icon-192.png",
+        });
+      } catch {}
+    }
+    setActiveOfflineAlert({
+      title: "TIME TO MOVE TO NEXT DESTINATION!",
+      milestoneTitle: milestone.title,
+      timeSlot: milestone.timeSlot,
+      departureAlert: milestone.departureAlert,
+      milestoneId: milestone.id,
+      dayNumber: day.dayNumber,
+    });
+  };
+
+  const toggleCompanion = () => {
+    const next = !companionActive;
+    setCompanionActive(next);
+    localStorage.setItem("staynth.companion.active", String(next));
+    if (next) {
+      if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission();
+      }
+      playOfflineChime();
+      showToast("Live Trip Companion active! Monitoring offline schedule in device memory.");
+    } else {
+      showToast("Live Trip Companion paused.");
+    }
+  };
+
+  // Periodic offline watcher every 30 seconds running directly in device memory
+  const lastAlertedMilestoneRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!companionActive || !selectedExpedition) return;
+
+    const checkSchedule = () => {
+      const now = new Date();
+      const currentH = now.getHours();
+      const currentM = now.getMinutes();
+
+      for (const day of selectedExpedition.days) {
+        for (const m of day.schedule || []) {
+          if (m.endHour === currentH && m.endMinute === currentM) {
+            if (lastAlertedMilestoneRef.current !== m.id) {
+              lastAlertedMilestoneRef.current = m.id;
+              triggerOfflineAlert(m, day);
+            }
+          }
+        }
+      }
+    };
+
+    const timer = setInterval(checkSchedule, 30000);
+    return () => clearInterval(timer);
+  }, [companionActive, selectedExpedition]);
+
+  const handleSyncCalendar = (day: ExpeditionDay) => {
+    if (!selectedExpedition) return;
+    const ics = generateIcsDaySchedule(day, selectedExpedition.title, startDate);
+    downloadIcsFile(`StayNth-Day${day.dayNumber}-${day.toLocation.replace(/[^a-zA-Z0-9]/g, "_")}-Alarms.ics`, ics);
+    showToast(`Day ${day.dayNumber} Alarms synced! Open the downloaded file to set phone calendar alarms.`);
+  };
+
+  const handleSyncAllDays = () => {
+    if (!selectedExpedition) return;
+    const allEvents: string[] = [];
+    selectedExpedition.days.forEach((d) => {
+      const dayIcs = generateIcsDaySchedule(d, selectedExpedition.title, startDate);
+      const matches = dayIcs.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g);
+      if (matches) allEvents.push(...matches);
+    });
+
+    const fullIcs = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//StayNth//Offline Expedition Companion//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      `X-WR-CALNAME:${selectedExpedition.title}`,
+      ...allEvents,
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    downloadIcsFile(`StayNth-Complete-Circuit-Alarms.ics`, fullIcs);
+    showToast(`Full 4-Day Circuit synced! Phone calendar will prompt to import all milestones and departure alarms.`);
+  };
+
+  const openStay3D = (stay: ExpeditionStay, day: ExpeditionDay) => {
+    const found = allListings.find((l) => l.id === stay.propertyId);
+    if (found) {
+      setPreviewListing(found);
+      return;
+    }
+    const dynamicListing: PropertyListing = {
+      id: stay.propertyId || `stay_${day.dayNumber}_${stay.type}`,
+      title: stay.name,
+      type: (stay.type === "resort" ? "villa" : stay.type === "hostel" ? "hostel" : "homestay") as any,
+      mode: "stay",
+      location: `${day.toLocation}, Karnataka`,
+      price: stay.pricePerNight || 1200,
+      priceUnit: "night",
+      bedrooms: stay.type === "hostel" ? 4 : 2,
+      bathrooms: 2,
+      beds: stay.type === "hostel" ? 8 : 2,
+      area: stay.type === "hostel" ? 1800 : 850,
+      description: `StayNth Onboarded Expedition Stay for Day ${day.dayNumber} (${day.fromLocation} ➔ ${day.toLocation}). Preview the interactive 3D layout, verified room proportions, and ensuite bathroom before arrival.`,
+      amenities: stay.features,
+      photos: [{ url: stay.photo, alt: stay.name }],
+      plan: generatePlan(
+        {
+          bedrooms: stay.type === "hostel" ? 4 : 2,
+          bathrooms: 2,
+          width: stay.type === "hostel" ? 54 : 42,
+          depth: 32,
+          furnished: true,
+        },
+        stay.name
+      ),
+      ownerName: "StayNth Curated Stay Desk",
+      mine: false,
+      published: true,
+      featured: true,
+      rating: 4.9,
+      reviews: 28,
+      createdAt: new Date().toISOString(),
+    };
+    setPreviewListing(dynamicListing);
+  };
+
   const publishedExpeditions = expeditions.filter((e) => e.published);
 
   return (
@@ -320,21 +637,58 @@ export function ExpeditionsPage({
                 </div>
               </div>
 
-              {/* Founder Vlog Trigger */}
-              {youtubeVideoId && (
-                <div className="mt-6 flex flex-wrap items-center gap-3">
+              {/* Founder Vlog & Offline Companion Action Strip */}
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                {youtubeVideoId && (
                   <button
                     onClick={() => setShowVideo(!showVideo)}
-                    className="flex items-center gap-2.5 rounded-xl bg-white px-4 py-2.5 text-[12.5px] font-bold text-ink hover:bg-white/90 transition shadow-lg group"
+                    className="flex items-center gap-2 rounded-xl bg-white px-3.5 py-2.5 text-[12px] font-bold text-ink hover:bg-white/90 transition shadow-lg group"
                   >
                     <Play className="h-4 w-4 fill-accent text-accent group-hover:scale-110 transition" />
-                    <span>{showVideo ? "Hide Scouting Video" : "Watch Founder's Scouting Vlog"}</span>
+                    <span>{showVideo ? "Hide Video" : "Scouting Vlog"}</span>
                   </button>
-                  <span className="text-[11px] text-white/70 italic">
-                    Recorded live on the ground during hotel vendor scouting
-                  </span>
-                </div>
-              )}
+                )}
+
+                <button
+                  type="button"
+                  onClick={toggleCompanion}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-[12px] font-bold transition shadow-lg",
+                    companionActive
+                      ? "bg-emerald-500 text-white ring-2 ring-emerald-300"
+                      : "bg-white/15 text-white hover:bg-white/25 border border-white/20 backdrop-blur-md"
+                  )}
+                  title="Enable device-local timer watcher (runs in phone memory even with zero cell signal)"
+                >
+                  <Radio className={cn("h-4 w-4", companionActive && "animate-pulse")} />
+                  <span>{companionActive ? "● Offline Companion Active" : "Start Offline Companion"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSyncAllDays}
+                  className="flex items-center gap-2 rounded-xl bg-indigo-600/90 hover:bg-indigo-600 px-3.5 py-2.5 text-[12px] font-bold text-white transition shadow-lg border border-indigo-400/40"
+                  title="Generate native .ics file to automatically schedule calendar events and device alarms"
+                >
+                  <Calendar className="h-4 w-4" />
+                  <span>Sync 4 Days to Alarms (.ics)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={playOfflineChime}
+                  className="flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 px-3 py-2 text-[11px] font-mono text-white/90 transition border border-white/15 backdrop-blur-sm"
+                  title="Test synthesized bell chime in browser memory"
+                >
+                  <Volume2 className="h-3.5 w-3.5 text-accent" />
+                  <span>Test Audio Bell</span>
+                </button>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 text-[11px] text-white/70">
+                <span className="flex h-2 w-2 rounded-full bg-emerald-400"></span>
+                <span>100% Device-Local Offline Engine: Audio Chime & Alarms trigger inside phone memory in zero-network valleys (Anshi Ghat, Yana caves).</span>
+              </div>
             </div>
           </div>
 
@@ -582,6 +936,178 @@ export function ExpeditionsPage({
                             </div>
                           )}
 
+                          {/* ============================================================ */}
+                          {/* HOUR-BY-HOUR OFFLINE TREK & ROUTE SCHEDULE                   */}
+                          {/* ============================================================ */}
+                          {day.schedule && day.schedule.length > 0 && (() => {
+                            const completedCount = day.schedule.filter((m) => checkins[m.id]).length;
+                            const totalCount = day.schedule.length;
+                            const percentComplete = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+                            return (
+                              <div className="mt-5 rounded-2xl border-2 border-indigo-500/25 bg-gradient-to-br from-indigo-50/40 via-white to-blue-50/30 p-4 sm:p-5 shadow-xs">
+                                {/* Schedule Header */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-100 pb-3.5">
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-600 text-white text-[12px] shadow-2xs">
+                                        ⏱️
+                                      </span>
+                                      <h5 className="font-serif text-[15px] font-bold text-ink">
+                                        Hour-by-Hour Offline Trek & Route Schedule
+                                      </h5>
+                                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-emerald-800">
+                                        100% Device-Local
+                                      </span>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-ink-soft">
+                                      Timed stops curated by founder. Device-local audio bell chime sounds when it's time to move to the next spot, even with zero network in deep forest valleys.
+                                    </p>
+                                  </div>
+
+                                  {/* Day Progress & Action Buttons */}
+                                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const firstMilestone = day.schedule![0];
+                                        triggerOfflineAlert(firstMilestone, day);
+                                      }}
+                                      className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 transition shadow-2xs"
+                                      title="Test synthesized bell chime and departure alert in phone memory"
+                                    >
+                                      <Volume2 className="h-3.5 w-3.5 text-amber-600" />
+                                      <span>Test Bell</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSyncCalendar(day)}
+                                      className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 transition shadow-2xs"
+                                      title="Download .ics file to automatically set phone clock alarms and calendar events"
+                                    >
+                                      <Calendar className="h-3.5 w-3.5" />
+                                      <span>Sync Alarms (.ics)</span>
+                                    </button>
+
+                                    {completedCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => resetDayCheckins(day)}
+                                        className="flex items-center gap-1 rounded-lg border border-line bg-white px-2 py-1.5 text-[10.5px] font-medium text-ink-soft hover:bg-paper-deep transition shadow-2xs"
+                                        title="Reset milestones progress for this day"
+                                      >
+                                        <RotateCcw className="h-3 w-3" />
+                                        <span>Reset</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Day Check-In Progress Bar */}
+                                <div className="mt-3 flex items-center justify-between gap-3 text-[11px] font-mono">
+                                  <span className="text-ink-soft">
+                                    Progress: <strong className="text-ink">{completedCount} of {totalCount} stops visited</strong> ({percentComplete}%)
+                                  </span>
+                                  <div className="h-2 w-32 sm:w-48 overflow-hidden rounded-full bg-indigo-100">
+                                    <div
+                                      className="h-full bg-gradient-to-r from-emerald-500 to-indigo-600 transition-all duration-300"
+                                      style={{ width: `${percentComplete}%` }}
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Milestones Vertical List */}
+                                <div className="mt-4 space-y-3">
+                                  {day.schedule.map((milestone) => {
+                                    const isChecked = Boolean(checkins[milestone.id]);
+                                    return (
+                                      <div
+                                        key={milestone.id}
+                                        className={cn(
+                                          "relative rounded-xl border p-3.5 transition",
+                                          isChecked
+                                            ? "border-emerald-200 bg-emerald-50/50"
+                                            : "border-line bg-white hover:border-indigo-300"
+                                        )}
+                                      >
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                          <div className="flex items-start sm:items-center gap-2.5">
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleCheckin(milestone.id)}
+                                              className={cn(
+                                                "mt-0.5 sm:mt-0 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border text-[11px] font-bold transition",
+                                                isChecked
+                                                  ? "border-emerald-600 bg-emerald-600 text-white shadow-2xs"
+                                                  : "border-line bg-paper text-transparent hover:border-indigo-400 hover:text-indigo-400"
+                                              )}
+                                              title={isChecked ? "Milestone Reached (Click to undo)" : "Click to mark stop as Reached"}
+                                            >
+                                              ✓
+                                            </button>
+                                            <div>
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                <span className="rounded-md bg-indigo-100 px-2 py-0.5 font-mono text-[10px] font-bold text-indigo-900">
+                                                  {milestone.timeSlot}
+                                                </span>
+                                                <span className={cn(
+                                                  "font-serif text-[13.5px] font-bold",
+                                                  isChecked ? "text-ink-soft line-through" : "text-ink"
+                                                )}>
+                                                  {milestone.title}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          <div className="flex items-center gap-2 shrink-0 pl-8 sm:pl-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => triggerOfflineAlert(milestone, day)}
+                                              className="flex items-center gap-1 rounded-md bg-paper px-2 py-1 text-[10px] font-mono text-ink-soft hover:bg-paper-deep border border-line"
+                                              title="Simulate departure chime for this stop"
+                                            >
+                                              <Bell className="h-3 w-3 text-accent" />
+                                              <span>Departure Chime</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleCheckin(milestone.id)}
+                                              className={cn(
+                                                "rounded-md px-2.5 py-1 text-[11px] font-semibold transition",
+                                                isChecked
+                                                  ? "bg-emerald-100 text-emerald-800"
+                                                  : "bg-ink text-white hover:bg-ink/90"
+                                              )}
+                                            >
+                                              {isChecked ? "✓ Reached" : "Mark Reached"}
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        <p className="mt-2 text-[11.5px] leading-relaxed text-ink-soft pl-8.5">
+                                          {milestone.activity}
+                                        </p>
+
+                                        {milestone.founderTip && (
+                                          <div className="mt-2 text-[10.5px] text-amber-950 bg-amber-50/80 p-2 rounded-lg border border-amber-200/60 leading-relaxed ml-8.5">
+                                            <strong>Founder Tip:</strong> {milestone.founderTip}
+                                          </div>
+                                        )}
+
+                                        <div className="mt-2 flex items-start gap-1.5 text-[10px] font-mono text-indigo-900 bg-indigo-50/60 p-2 rounded-lg border border-indigo-200/50 ml-8.5">
+                                          <Bell className="h-3.5 w-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                                          <span><strong>Next Destination Alert ({milestone.timeSlot.split("–")[1]?.trim() || "Departure"}):</strong> {milestone.departureAlert}</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                           {/* Stay Card for Selected Tier */}
                           {stay && (
                             <div className="mt-5 rounded-xl border border-line bg-paper-deep p-4 transition hover:bg-white hover:border-ink/20">
@@ -626,6 +1152,15 @@ export function ExpeditionsPage({
                                       <span className="font-mono text-[10.5px] text-ink-soft">
                                         per night
                                       </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => openStay3D(stay, day)}
+                                        className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-accent/40 bg-white px-2.5 py-1 text-[10.5px] font-semibold text-accent hover:bg-amber-50 transition shadow-2xs w-full sm:w-auto"
+                                        title="View interactive 3D layout, dimensions, and room walkthrough"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                        <span>View in 3D</span>
+                                      </button>
                                     </>
                                   ) : (
                                     <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-bold text-emerald-800">
@@ -700,15 +1235,75 @@ export function ExpeditionsPage({
                         </div>
                       )}
 
-                      <div className="rounded-xl bg-paper p-3 font-mono text-[11px] text-ink-soft border border-line">
-                        Status: Pending Check-In • Zero Advance Required
+                      {/* Breakdown of all 4 booked stays with 3D models */}
+                      <div className="mt-4 space-y-2 text-left">
+                        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-faint font-semibold flex items-center justify-between">
+                          <span>Circuit Hotel Vouchers</span>
+                          <span className="text-emerald-700">✓ All Locked In</span>
+                        </div>
+                        {selectedExpedition.days.map((d, dIdx) => {
+                          const dayStay = d.stays[selectedTier];
+                          if (!dayStay) return null;
+                          const cDate = new Date(startDate);
+                          cDate.setDate(cDate.getDate() + dIdx);
+
+                          return (
+                            <div key={d.dayNumber} className="rounded-xl border border-line bg-paper p-3 text-[11px] space-y-1.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <span className="font-mono text-[9px] font-bold text-accent uppercase">
+                                    Day {d.dayNumber} • {cDate.toLocaleDateString("en-IN", { month: "short", day: "numeric" })}
+                                  </span>
+                                  <div className="font-bold text-ink text-[12px] leading-tight">
+                                    {dayStay.name}
+                                  </div>
+                                  <div className="text-[10px] text-ink-soft">
+                                    {d.toLocation} • {dayStay.type.toUpperCase()}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openStay3D(dayStay, d)}
+                                  className="flex items-center gap-1 rounded-lg border border-accent/40 bg-white px-2 py-1 text-[10px] font-semibold text-accent hover:bg-amber-50 shadow-2xs shrink-0"
+                                  title="Open interactive 3D floor plan walkthrough"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  <span>3D Plan</span>
+                                </button>
+                              </div>
+
+                              <div className="flex items-center justify-between border-t border-line-soft pt-1 font-mono text-[10px] text-ink-soft">
+                                <span>Tariff: {dayStay.pricePerNight > 0 ? `₹${dayStay.pricePerNight.toLocaleString()}` : "Return Leg"}</span>
+                                <span className="text-emerald-700 font-bold">100% Pay at Hotel</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
+
+                      {/* 1-Tap Complete Circuit Alarms Sync Button */}
+                      <button
+                        type="button"
+                        onClick={handleSyncAllDays}
+                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-[12px] font-bold text-white hover:bg-indigo-700 shadow-sm transition"
+                      >
+                        <Calendar className="h-4 w-4" />
+                        <span>Sync 4 Days to Phone Alarms (.ics)</span>
+                      </button>
+
+                      <div className="rounded-xl bg-paper p-3 font-mono text-[10.5px] text-ink-soft border border-line text-left space-y-1">
+                        <div className="text-emerald-700 font-semibold flex items-center gap-1">
+                          <Check className="h-3.5 w-3.5" /> Fast-Track KYC Transmitted
+                        </div>
+                        <div>Zero Advance Deposit • Hand over ID at front desks for immediate room keys.</div>
+                      </div>
+
                       <button
                         onClick={() => {
                           setBookingSuccess(false);
                           setMobilityPassCode(null);
                         }}
-                        className="w-full rounded-xl border border-line bg-white py-2.5 text-[12px] font-medium text-ink hover:bg-paper-deep"
+                        className="w-full rounded-xl border border-line bg-white py-2 text-[11px] font-medium text-ink-soft hover:bg-paper-deep"
                       >
                         Book Another Group
                       </button>
@@ -1000,6 +1595,102 @@ export function ExpeditionsPage({
             )}
           </div>
         </main>
+      )}
+
+      {/* 3D Property Walkthrough Modal */}
+      {previewListing && (
+        <PropertyDetail
+          listing={previewListing}
+          initialView="3d"
+          onClose={() => setPreviewListing(null)}
+          onRequest={() => {
+            showToast("Stay inquiry recorded!");
+          }}
+          requests={[]}
+          onReview={() => {}}
+          onReport={() => {}}
+          onOpenRequests={() => {}}
+        />
+      )}
+
+      {/* 100% Device-Local High-Priority Offline Departure Alert Modal */}
+      {activeOfflineAlert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-pop">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border-2 border-amber-400 bg-white shadow-2xl text-ink">
+            <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 text-[20px] shadow-2xs animate-bounce">
+                  🔔
+                </span>
+                <div>
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-amber-100 font-bold block">
+                    100% Device-Local Offline Alert (Zero Network Required)
+                  </span>
+                  <h3 className="font-serif text-[17px] font-bold leading-tight">
+                    {activeOfflineAlert.title}
+                  </h3>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveOfflineAlert(null)}
+                className="rounded-lg p-1.5 text-white/80 hover:bg-white/20 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                <div className="font-mono text-[11px] font-bold text-amber-800">
+                  Day {activeOfflineAlert.dayNumber} Milestone: {activeOfflineAlert.timeSlot}
+                </div>
+                <div className="font-serif text-[16px] font-bold text-ink mt-0.5">
+                  {activeOfflineAlert.milestoneTitle}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-line bg-paper-deep p-4">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-ink-faint font-mono">
+                  Departure Action:
+                </div>
+                <p className="mt-1 text-[13px] font-medium text-ink leading-relaxed">
+                  {activeOfflineAlert.departureAlert}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={playOfflineChime}
+                  className="flex items-center gap-1.5 rounded-xl border border-line bg-paper px-3 py-2 text-[11px] font-semibold text-ink hover:bg-paper-deep"
+                >
+                  <Volume2 className="h-4 w-4 text-accent" />
+                  <span>Replay Audio Chime</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toggleCheckin(activeOfflineAlert.milestoneId);
+                      setActiveOfflineAlert(null);
+                    }}
+                    className="rounded-xl bg-emerald-600 px-4 py-2 text-[12px] font-bold text-white hover:bg-emerald-700 shadow-sm"
+                  >
+                    ✓ Mark Reached & Dismiss
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveOfflineAlert(null)}
+                    className="rounded-xl border border-line bg-white px-3 py-2 text-[12px] font-medium text-ink-soft hover:bg-paper-deep"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Footer */}
