@@ -40,6 +40,7 @@ import { RoadTripPlannerModal } from "@/components/RoadTripPlannerModal";
 import { loadFeatureFlags, type FeatureFlags } from "@/lib/featureFlags";
 import { AuthModal } from "@/components/AuthModal";
 import { fetchCurrentUser, logoutUser, type User } from "@/lib/auth";
+import { StayNthIcon } from "@/components/StayNthLogo";
 import {
   formatPrice,
   PROPERTY_TYPE_LABEL,
@@ -288,7 +289,7 @@ export function PropertiesApp({
       <header className="flex h-[62px] shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <button onClick={onBack} className="flex items-center gap-2" title="Back to floor plan studio">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-ink text-white"><Building2 className="h-4 w-4" /></span>
+            <StayNthIcon className="h-9 w-9 rounded-xl shadow-xs" />
             <span className="hidden text-left sm:block">
               <span className="block text-[16px] font-semibold leading-none tracking-[-0.03em]">StayNth</span>
               <span className="mt-1 block font-mono text-[8px] uppercase tracking-[0.2em] text-ink-faint">properties</span>

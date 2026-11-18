@@ -20,19 +20,10 @@ import {
 import { cn } from "@/utils/cn";
 import { AuthModal } from "@/components/AuthModal";
 import { fetchCurrentUser, logoutUser, type User } from "@/lib/auth";
+import { StayNthIcon } from "@/components/StayNthLogo";
 
 function BrandMark() {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden>
-      <rect width="32" height="32" rx="9" fill="#16313b" />
-      <path d="M8 23V10.5C8 9.67 8.67 9 9.5 9H15" stroke="#f7f4ec" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M8 23H24V17" stroke="#f7f4ec" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M23 8.5v5.5" stroke="#d4653f" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M19.5 9H23" stroke="#f7f4ec" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M15 16.5h9" stroke="#f7f4ec" strokeWidth="1.6" strokeLinecap="round" opacity="0.55" />
-      <circle cx="15" cy="23" r="1.4" fill="#d4653f" />
-    </svg>
-  );
+  return <StayNthIcon className="h-8 w-8 rounded-xl object-contain shadow-xs" />;
 }
 
 interface Props {

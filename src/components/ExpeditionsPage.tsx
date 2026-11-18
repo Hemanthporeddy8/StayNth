@@ -35,6 +35,7 @@ import {
   loadLocalExpeditions,
   fetchRemoteExpeditions,
 } from "@/lib/expeditions";
+import { StayNthIcon } from "@/components/StayNthLogo";
 import {
   type PropertyRequest,
   type PropertyListing,
@@ -536,11 +537,9 @@ export function ExpeditionsPage({
           <div className="flex items-center gap-3">
             <button
               onClick={selectedExpedition ? closeToDirectory : onBack}
-              className="flex items-center gap-2 group text-left"
+              className="flex items-center gap-2.5 group text-left"
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-ink text-white shadow-xs group-hover:scale-105 transition">
-                <Compass className="h-5 w-5 text-accent animate-pulse" />
-              </div>
+              <StayNthIcon className="h-9 w-9 rounded-xl shadow-xs group-hover:scale-105 transition" />
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="font-serif text-[17px] font-bold tracking-tight text-ink">StayNth</span>
