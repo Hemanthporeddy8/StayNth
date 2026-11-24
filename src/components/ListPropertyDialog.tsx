@@ -17,6 +17,8 @@ import {
   ArrowLeft,
   MapPin,
   Crosshair,
+  Clock3,
+  Phone,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { FOOTPRINT_PRESETS, clamp, generatePlan, parsePlanFile, splitFloors, uid } from "@/lib/plan";
@@ -51,7 +53,7 @@ const input =
   "h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[12px] text-ink outline-none transition focus:border-ink/40 focus:ring-2 focus:ring-ink/5";
 const label = "mb-1 block font-mono text-[9px] uppercase tracking-[0.08em] text-ink-faint";
 
-type PlanSource = "current" | "upload" | "create";
+type PlanSource = "current" | "upload" | "create" | "concierge";
 type Floor = { name: string; plan: Plan };
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -101,6 +103,7 @@ export function ListPropertyDialog({
   const [planBusy, setPlanBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
+  const [conciergeAgreed, setConciergeAgreed] = useState(true);
   const [draftingModalOpen, setDraftingModalOpen] = useState(false);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -160,6 +163,7 @@ export function ListPropertyDialog({
   const floors: Floor[] = useMemo(() => {
     if (planSource === "current") return studioFloors;
     if (planSource === "upload") return uploaded?.floors ?? [];
+    if (planSource === "concierge") return [{ name: "Level 01", plan: { width: 40, depth: 30, rooms: [], walls: [] } }];
     return [{ name: "Level 01", plan: generated }];
   }, [planSource, studioFloors, uploaded, generated]);
 
@@ -260,6 +264,7 @@ export function ListPropertyDialog({
     const copies: Floor[] = floors.map((floor) => ({ name: floor.name, plan: { ...clone(floor.plan), name: title.trim() } }));
     const plan = copies[0].plan;
     const allRooms = copies.flatMap((floor) => floor.plan.rooms);
+    const isPendingDraft = planSource === "concierge" || allRooms.length === 0;
 
     onCreate({
       id: uid("property"),
@@ -269,10 +274,10 @@ export function ListPropertyDialog({
       location: location.trim(),
       price,
       priceUnit: mode === "stay" ? "night" : mode === "rent" ? "month" : "total",
-      bedrooms: allRooms.filter((room) => room.type === "bedroom").length,
-      bathrooms: allRooms.filter((room) => room.type === "bath").length,
+      bedrooms: allRooms.length ? allRooms.filter((room) => room.type === "bedroom").length : bedrooms,
+      bathrooms: allRooms.length ? allRooms.filter((room) => room.type === "bath").length : bathrooms,
       beds: Math.max(1, beds),
-      area: areaOf(copies),
+      area: areaOf(copies) || width * depth,
       description:
         description.trim() ||
         "Explore this property through its interactive floor plan and real 3D walkthrough before sending an enquiry.",
@@ -282,6 +287,8 @@ export function ListPropertyDialog({
       ownerName: "You",
       mine: true,
       verification: "unverified",
+      planStatus: isPendingDraft ? "pending" : "verified",
+      conciergeRequested: planSource === "concierge" || conciergeAgreed,
       latitude: latitude.trim() ? Number(latitude) : undefined,
       longitude: longitude.trim() ? Number(longitude) : undefined,
       inventory,
@@ -299,7 +306,8 @@ export function ListPropertyDialog({
   const sourceOptions: { id: PlanSource; title: string; hint: string; icon: typeof Building2 }[] = [
     { id: "current", title: "Studio plan", hint: "Use the plan you drew", icon: PencilRuler },
     { id: "upload", title: "Upload plan file", hint: "A .json saved from Studio", icon: FileUp },
-    { id: "create", title: "Create new plan", hint: "Generate or draw one", icon: Sparkles },
+    { id: "create", title: "Create new plan", hint: "Generate standard layout", icon: Sparkles },
+    { id: "concierge", title: "StayNth Build For Me", hint: "₹0 upfront · We draft it", icon: Clock3 },
   ];
 
   return (
@@ -744,7 +752,7 @@ export function ListPropertyDialog({
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-3 gap-1.5">
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               {sourceOptions.map((option) => {
                 const Icon = option.icon;
                 const active = planSource === option.id;
@@ -767,6 +775,54 @@ export function ListPropertyDialog({
             </div>
 
             <div className="mt-3">
+              {planSource === "concierge" && (
+                <div className="rounded-xl border border-amber-300/80 bg-gradient-to-br from-amber-50/80 via-white to-orange-50/60 p-4 shadow-2xs space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-700 shadow-2xs">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-[13px] font-semibold text-ink">Zero Upfront Cost — We Build Your 1:1 3D Model</h4>
+                      <p className="mt-1 text-[11px] leading-relaxed text-ink-soft">
+                        Don't know CAD or how to draw walls? No problem! Your listing will go <span className="font-semibold text-ink">LIVE immediately</span> with photos, price, and location. Our architectural team will draft your real 1:1 3D spatial walkthrough for you.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-amber-200/80 bg-white/90 p-3 text-[11px] text-ink-soft space-y-1.5">
+                    <div className="flex items-center gap-2 font-medium text-ink">
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-100 text-[10px] text-emerald-700">✓</span>
+                      <span>How it works:</span>
+                    </div>
+                    <p className="text-[10.5px] leading-relaxed text-ink-soft pl-6">
+                      1. Draw your rough layout with a pen on paper, or take a photo of your existing blueprint.<br/>
+                      2. Add it as a property photo below, or send it directly to our team on WhatsApp.<br/>
+                      3. StayNth drafts your 3D model in 24–48h. The small drafting fee is <span className="font-semibold text-ink">deducted from your first guest booking payout</span>. ₹0 out of pocket!
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    <label className="flex items-center gap-2 text-[11px] font-medium text-ink">
+                      <input
+                        type="checkbox"
+                        checked={conciergeAgreed}
+                        onChange={(e) => setConciergeAgreed(e.target.checked)}
+                        className="h-4 w-4 rounded border-line text-ink accent-ink focus:ring-ink"
+                      />
+                      <span>I request StayNth to draft my 1:1 3D floor plan (fee deducted from 1st booking)</span>
+                    </label>
+                    <a
+                      href="https://wa.me/919999999999?text=Hi%20StayNth%20Team%2C%20I%20am%20listing%20my%20property%20and%20need%20help%20building%20the%203D%20floor%20plan."
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-1.5 text-[10.5px] font-medium text-emerald-800 hover:bg-emerald-100 transition"
+                    >
+                      <Phone className="h-3.5 w-3.5 text-emerald-600" /> Need help? Chat on WhatsApp
+                    </a>
+                  </div>
+                </div>
+              )}
+
               {planSource === "current" && (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-paper px-3 py-2.5">
                   <p className="text-[11px] leading-snug text-ink-soft">
@@ -850,16 +906,16 @@ export function ListPropertyDialog({
             {/* real plan preview */}
             <div className="mt-3 overflow-hidden rounded-xl border border-line bg-[#fbf9f4]">
               <div className="relative h-[210px]">
-                {activeFloor ? (
-                  <MiniPlan plan={activeFloor.plan} />
-                ) : (
+                {planSource === "concierge" || !activeFloor || activeFloor.plan.rooms.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-                    <LayoutTemplate className="h-6 w-6 text-ink-faint" />
-                    <p className="mt-2 text-[11px] font-medium text-ink-soft">No plan to preview yet</p>
-                    <p className="mt-0.5 text-[10px] text-ink-faint">
-                      {planSource === "upload" ? "Choose a plan file to see it here." : planSource === "current" ? "Draw rooms in Studio, or switch to Create new plan." : ""}
+                    <Clock3 className="h-8 w-8 text-amber-600/75 animate-pulse" />
+                    <p className="mt-2 text-[12px] font-semibold text-ink">3D Spatial Walkthrough: In Progress</p>
+                    <p className="mt-1 max-w-sm text-[10.5px] leading-relaxed text-ink-faint">
+                      Your listing goes live with verified photos immediately. The 1:1 3D model will be drafted by StayNth architects and attached to your listing.
                     </p>
                   </div>
+                ) : (
+                  <MiniPlan plan={activeFloor.plan} />
                 )}
                 {floors.length > 1 && (
                   <div className="absolute left-2 top-2 flex rounded-lg border border-line bg-white/95 p-0.5 shadow-sm">

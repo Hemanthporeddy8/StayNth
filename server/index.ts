@@ -200,6 +200,11 @@ async function ensureTables(db: D1Database) {
 }
 
 function parsePropertyRow(row: any) {
+  const plan = row.plan_json ? JSON.parse(row.plan_json) : { width: 40, depth: 30, rooms: [], walls: [] };
+  const hasAuthenticRooms = Boolean(plan && plan.rooms && plan.rooms.length > 0);
+  const planStatus = row.plan_status || plan.planStatus || (hasAuthenticRooms ? "verified" : "pending");
+  const conciergeRequested = Boolean(row.concierge_requested ?? (plan.conciergeRequested || planStatus === "pending"));
+
   return {
     id: row.id,
     ownerId: row.owner_id || null,
@@ -216,7 +221,9 @@ function parsePropertyRow(row: any) {
     description: row.description || "",
     amenities: JSON.parse(row.amenities_json || "[]"),
     photos: JSON.parse(row.photos_json || "[]"),
-    plan: row.plan_json ? JSON.parse(row.plan_json) : { width: 40, depth: 30, rooms: [], walls: [] },
+    plan,
+    planStatus,
+    conciergeRequested,
     ownerName: row.owner_name || "Owner",
     verification: row.verification || "unverified",
     latitude: row.latitude || null,
@@ -536,7 +543,7 @@ export default {
             body.description || "",
             JSON.stringify(body.amenities || []),
             JSON.stringify(body.photos || []),
-            JSON.stringify(body.plan),
+            JSON.stringify({ ...body.plan, planStatus: body.planStatus, conciergeRequested: body.conciergeRequested }),
             ownerName,
             body.verification || "verified",
             body.latitude || null,

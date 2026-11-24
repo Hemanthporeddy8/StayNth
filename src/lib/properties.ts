@@ -99,6 +99,8 @@ export interface PropertyListing {
   verification?: "unverified" | "pending" | "verified";
   latitude?: number;
   longitude?: number;
+  planStatus?: "verified" | "pending" | "none";
+  conciergeRequested?: boolean;
   inventory?: RoomInventory[];
   reviewsList?: PropertyReview[];
   reports?: PropertyReport[];

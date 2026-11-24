@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   Sparkles,
   Compass,
+  Phone,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { ListPropertyDialog } from "@/components/ListPropertyDialog";
@@ -244,6 +245,13 @@ export function PropertiesApp({
   const selectedListing = selected ? listings.find((listing) => listing.id === selected.id) ?? null : null;
   const pendingCount = requests.filter((request) => request.status === "pending").length;
 
+  const myPendingProperties = useMemo(() => {
+    return listings.filter((item) => {
+      const isMine = (currentUser && item.ownerId === currentUser.id) || item.mine;
+      return isMine && (item.planStatus === "pending" || !item.plan || !item.plan.rooms || item.plan.rooms.length === 0);
+    });
+  }, [listings, currentUser]);
+
   const addRequest = (request: PropertyRequest) => {
     setRequests((current) => [request, ...current]);
     saveRemoteRequest(request);
@@ -405,6 +413,40 @@ export function PropertiesApp({
                 </div>
               </div>
             </div>
+
+            {tab === "mine" && myPendingProperties.length > 0 && (
+              <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50 via-orange-50/70 to-amber-100/60 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-700 shadow-2xs">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-[12.5px] font-semibold text-ink">
+                      Action Needed: 3D Spatial Walkthrough pending for {myPendingProperties.length} listing{myPendingProperties.length > 1 ? "s" : ""}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-ink-soft">
+                      Properties with 1:1 3D tours receive 40% more booking inquiries. Don't know CAD? Our architects draft your 3D layout for <span className="font-semibold text-ink">₹0 upfront</span> (fee deducted from your first booking payout).
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <a
+                    href={`https://wa.me/919999999999?text=Hi%20StayNth%20Team%2C%20I%20need%20help%20building%20the%203D%20floor%20plan%20for%20my%20property%20${encodeURIComponent(myPendingProperties[0]?.title || "")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-2 text-[11px] font-semibold text-ink shadow-2xs hover:bg-paper transition"
+                  >
+                    <Phone className="h-3.5 w-3.5 text-emerald-600" /> WhatsApp Sketch
+                  </a>
+                  <button
+                    onClick={() => openDetail(myPendingProperties[0], "photos")}
+                    className="flex items-center gap-1.5 rounded-xl bg-ink px-3 py-2 text-[11px] font-semibold text-white shadow-2xs hover:bg-ink/90 transition"
+                  >
+                    <Eye className="h-3.5 w-3.5" /> View Listing
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="mt-5 rounded-2xl border border-line bg-white p-2.5 shadow-sm">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
@@ -656,15 +698,29 @@ function PropertyCard({
         <button onClick={onFavorite} className={cn("absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded-full border border-white/60 bg-white/90 shadow-sm backdrop-blur transition", favorite ? "text-accent" : "text-ink-soft")} aria-label={favorite ? "Remove from favorites" : "Save to favorites"}>
           <Heart className={cn("h-4 w-4", favorite && "fill-current")} />
         </button>
-        <button onClick={() => onOpen("3d")} className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full border border-white/50 bg-ink/75 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-wide text-white backdrop-blur transition hover:bg-ink">
-          <Box className="h-3 w-3" /> View in 3D
-        </button>
+        {listing.planStatus === "pending" || !listing.plan || !listing.plan.rooms || listing.plan.rooms.length === 0 ? (
+          <button onClick={() => onOpen("3d")} className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-950/80 px-2.5 py-1.5 font-mono text-[8.5px] uppercase tracking-wide text-amber-200 backdrop-blur transition hover:bg-amber-900">
+            <Clock3 className="h-3 w-3 text-amber-300 animate-pulse" /> 3D in progress
+          </button>
+        ) : (
+          <button onClick={() => onOpen("3d")} className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full border border-white/50 bg-ink/75 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-wide text-white backdrop-blur transition hover:bg-ink">
+            <Box className="h-3 w-3" /> View in 3D
+          </button>
+        )}
         {!listing.published && <span className="absolute left-2.5 top-2.5 rounded-full bg-white/90 px-2 py-1 font-mono text-[8px] uppercase text-ink-soft">Unpublished</span>}
       </div>
       <div className="p-3.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="micro flex items-center gap-1 text-ink-faint">{PROPERTY_TYPE_LABEL[listing.type]} · {listing.bedrooms} BHK {listing.verification === "verified" && <BadgeCheck className="h-3 w-3 text-blueprint" />}</p>
+            <p className="micro flex items-center gap-1 text-ink-faint">
+              {PROPERTY_TYPE_LABEL[listing.type]} · {listing.bedrooms} BHK 
+              {listing.verification === "verified" && <BadgeCheck className="h-3 w-3 text-blueprint" />}
+              {(listing.planStatus === "pending" || !listing.plan || !listing.plan.rooms || listing.plan.rooms.length === 0) && (
+                <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-amber-50 px-1.5 py-0.2 font-mono text-[7.5px] font-semibold text-amber-700 border border-amber-200/60">
+                  Drafting 3D (₹0)
+                </span>
+              )}
+            </p>
             <h3 className="mt-1 truncate text-[14px] font-semibold tracking-[-0.02em] text-ink">{listing.title}</h3>
           </div>
           <span className="flex shrink-0 items-center gap-1 text-[10px] text-ink-soft"><Star className="h-3 w-3 fill-current text-accent" />{listing.reviews ? listing.rating : "New"}</span>

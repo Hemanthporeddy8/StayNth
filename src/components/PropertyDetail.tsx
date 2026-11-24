@@ -25,6 +25,9 @@ import {
   QrCode,
   Phone,
   Sparkles,
+  Clock3,
+  Bell,
+  Check,
 } from "lucide-react";
 import { House3D } from "@/components/House3D";
 import { AvailabilityCalendar } from "@/components/AvailabilityCalendar";
@@ -63,6 +66,8 @@ export function PropertyDetail({
   const [view, setView] = useState<"photos" | "3d">(initialView);
   const [floorIndex, setFloorIndex] = useState(0);
   const activePlan = listing.floorPlans?.[floorIndex]?.plan ?? listing.plan;
+  const isPlanPending = listing.planStatus === "pending" || !activePlan || !activePlan.rooms || activePlan.rooms.length === 0;
+  const [notified3D, setNotified3D] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [guestName, setGuestName] = useState("");
   const [email, setEmail] = useState("");
@@ -253,6 +258,9 @@ export function PropertyDetail({
                   </button>
                   <button onClick={() => setView("3d")} className={cn("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium", view === "3d" ? "bg-ink text-white" : "text-ink-soft")}>
                     <Box className="h-3.5 w-3.5" /> 3D walkthrough
+                    {isPlanPending && (
+                      <span className="ml-0.5 rounded-full bg-amber-500/20 px-1.5 py-0.2 font-mono text-[7.5px] font-semibold text-amber-700">In draft</span>
+                    )}
                   </button>
                 </div>
                 <span className="hidden items-center gap-1 font-mono text-[9px] uppercase tracking-wide text-ink-faint sm:flex">
@@ -261,16 +269,49 @@ export function PropertyDetail({
               </div>
 
               {view === "3d" ? (
-                <div className="relative h-[470px] overflow-hidden rounded-2xl border border-line bg-[#e7e4dc] shadow-sm sm:h-[560px]">
-                  <House3D key={floorIndex} plan={activePlan} />
-                  {listing.floorPlans && listing.floorPlans.length > 1 && (
-                    <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 rounded-lg border border-white/60 bg-white/90 p-1 shadow-sm backdrop-blur">
-                      {listing.floorPlans.map((floor, index) => (
-                        <button key={floor.name} onClick={() => setFloorIndex(index)} className={cn("rounded-md px-2.5 py-1 text-[9px] font-medium", index === floorIndex ? "bg-ink text-white" : "text-ink-soft")}>{floor.name}</button>
-                      ))}
+                isPlanPending ? (
+                  <div className="relative flex h-[470px] flex-col items-center justify-center rounded-2xl border border-line bg-gradient-to-b from-[#fbf9f4] via-[#f5f2e9] to-[#eeeae0] p-6 text-center shadow-sm sm:h-[560px]">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-600 shadow-inner">
+                      <Clock3 className="h-8 w-8 animate-pulse text-amber-600" />
                     </div>
-                  )}
-                </div>
+                    <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-800">
+                      <Sparkles className="h-3.5 w-3.5" /> 3D Spatial Walkthrough in Progress
+                    </div>
+                    <h3 className="mt-3 font-serif text-xl sm:text-2xl font-bold text-ink">Architectural 1:1 Model Being Drafted</h3>
+                    <p className="mt-2 max-w-md text-xs leading-relaxed text-ink-soft">
+                      StayNth architects are currently drafting the verified 1:1 3D spatial twin for <span className="font-semibold text-ink">{listing.title}</span>. Real floor dimensions, room layout, and interior furniture scale will go live soon.
+                    </p>
+
+                    <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                      <button onClick={() => setView("photos")} className="flex items-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-ink/90 transition">
+                        <Images className="h-4 w-4" /> View Verified Photos & Book Now
+                      </button>
+                      <button
+                        onClick={() => setNotified3D(true)}
+                        disabled={notified3D}
+                        className="flex items-center gap-1.5 rounded-xl border border-line bg-white px-4 py-2.5 text-xs font-semibold text-ink hover:bg-paper-deep transition disabled:opacity-80"
+                      >
+                        {notified3D ? <Check className="h-4 w-4 text-emerald-600" /> : <Bell className="h-4 w-4 text-amber-600" />}
+                        {notified3D ? "We'll notify you when 3D is ready!" : "Notify me when 3D is live"}
+                      </button>
+                    </div>
+
+                    <div className="mt-8 rounded-xl border border-line/60 bg-white/70 px-4 py-2 text-[10.5px] text-ink-faint backdrop-blur">
+                      ✨ Authentic Guarantee: We never publish fake or generic 3D layouts. Only real 1:1 models.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="relative h-[470px] overflow-hidden rounded-2xl border border-line bg-[#e7e4dc] shadow-sm sm:h-[560px]">
+                    <House3D key={floorIndex} plan={activePlan} />
+                    {listing.floorPlans && listing.floorPlans.length > 1 && (
+                      <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 rounded-lg border border-white/60 bg-white/90 p-1 shadow-sm backdrop-blur">
+                        {listing.floorPlans.map((floor, index) => (
+                          <button key={floor.name} onClick={() => setFloorIndex(index)} className={cn("rounded-md px-2.5 py-1 text-[9px] font-medium", index === floorIndex ? "bg-ink text-white" : "text-ink-soft")}>{floor.name}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
               ) : (
                 <div className="relative h-[340px] overflow-hidden rounded-2xl bg-paper-deep sm:h-[470px]">
                   {displayPhotos.length ? (
