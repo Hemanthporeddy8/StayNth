@@ -19,6 +19,7 @@ import {
   Crosshair,
   Clock3,
   Phone,
+  MessageSquare,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { FOOTPRINT_PRESETS, clamp, generatePlan, parsePlanFile, splitFloors, uid } from "@/lib/plan";
@@ -26,6 +27,7 @@ import { fileToRoomImage } from "@/lib/imageUpload";
 import { MiniPlan } from "@/components/Dialogs";
 import { LocationMapPicker } from "@/components/LocationMapPicker";
 import { peekDraft, saveDraft } from "@/lib/listingDraft";
+import { openSupportChat } from "@/lib/support";
 import {
   AMENITY_OPTIONS,
   PROPERTY_TYPE_LABEL,
@@ -811,14 +813,18 @@ export function ListPropertyDialog({
                       />
                       <span>I request StayNth to draft my 1:1 3D floor plan (fee deducted from 1st booking)</span>
                     </label>
-                    <a
-                      href="https://wa.me/919999999999?text=Hi%20StayNth%20Team%2C%20I%20am%20listing%20my%20property%20and%20need%20help%20building%20the%203D%20floor%20plan."
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-1.5 text-[10.5px] font-medium text-emerald-800 hover:bg-emerald-100 transition"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        openSupportChat({
+                          propertyTitle: title || "New Listing Draft",
+                          initialMessage: `Hi StayNth Architects, I'm listing "${title || "my property"}" in ${location || "India"} and would like you to draft my 3D floor plan from my sketch.`
+                        });
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg border border-amber-400/50 bg-amber-50 px-3 py-1.5 text-[10.5px] font-semibold text-amber-900 hover:bg-amber-100 transition shadow-2xs"
                     >
-                      <Phone className="h-3.5 w-3.5 text-emerald-600" /> Need help? Chat on WhatsApp
-                    </a>
+                      <MessageSquare className="h-3.5 w-3.5 text-accent" /> Chat with Architects & Upload Sketch
+                    </button>
                   </div>
                 </div>
               )}

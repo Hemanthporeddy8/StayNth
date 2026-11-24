@@ -24,6 +24,11 @@ import {
   Trash2,
   Edit3,
   Play,
+  Headphones,
+  MessageSquare,
+  Search,
+  ExternalLink,
+  Send,
 } from "lucide-react";
 import {
   loadReplicaOrders,
@@ -43,6 +48,14 @@ import {
   type Expedition,
   type ExpeditionDay,
 } from "@/lib/expeditions";
+import {
+  fetchAdminThreads,
+  fetchThreadMessages,
+  sendSupportMessage,
+  markThreadRead,
+  type SupportThreadSummary,
+  type SupportMessage,
+} from "@/lib/support";
 import {
   getStoredToken,
   getStoredUser,
@@ -87,7 +100,7 @@ export function AdminPage({
   const [totpError, setTotpError] = useState(false);
 
   // Admin Console Active Tab
-  const [activeTab, setActiveTab] = useState<"drafting" | "flags" | "bookings" | "team" | "expeditions">("drafting");
+  const [activeTab, setActiveTab] = useState<"drafting" | "flags" | "bookings" | "team" | "expeditions" | "support">("drafting");
   const [orders, setOrders] = useState<ReplicaOrder[]>(loadReplicaOrders);
   const [requests] = useState<PropertyRequest[]>(loadRequests);
   const [listings] = useState<PropertyListing[]>(loadListings);
@@ -95,6 +108,16 @@ export function AdminPage({
   const [selectedOrder, setSelectedOrder] = useState<ReplicaOrder | null>(null);
   const [viewingKycRequest, setViewingKycRequest] = useState<PropertyRequest | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Live Support Desk state
+  const [supportThreads, setSupportThreads] = useState<SupportThreadSummary[]>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [threadMessages, setThreadMessages] = useState<SupportMessage[]>([]);
+  const [supportReplyInput, setSupportReplyInput] = useState("");
+  const [supportSending, setSupportSending] = useState(false);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportFilterQuery, setSupportFilterQuery] = useState("");
+  const [supportPreviewModalUrl, setSupportPreviewModalUrl] = useState<string | null>(null);
 
   // Expeditions state
   const [expeditions, setExpeditions] = useState<Expedition[]>(loadLocalExpeditions);
@@ -199,6 +222,84 @@ export function AdminPage({
       fetchTeam();
     }
   }, [activeTab, authStep]);
+
+  // Support Desk handlers
+  const refreshSupportThreads = async () => {
+    if (authStep !== "authenticated") return;
+    const threads = await fetchAdminThreads();
+    setSupportThreads(threads);
+  };
+
+  const loadCurrentThread = async (id: string) => {
+    setSupportLoading(true);
+    const msgs = await fetchThreadMessages(id);
+    setThreadMessages(msgs);
+    setSupportLoading(false);
+    await markThreadRead(id);
+    setSupportThreads((prev) =>
+      prev.map((t) => (t.threadId === id ? { ...t, unreadCount: 0 } : t))
+    );
+  };
+
+  const handleSelectThread = (id: string) => {
+    setSelectedThreadId(id);
+    loadCurrentThread(id);
+  };
+
+  const handleSendSupportReply = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!selectedThreadId || !supportReplyInput.trim()) return;
+
+    setSupportSending(true);
+    const sent = await sendSupportMessage({
+      threadId: selectedThreadId,
+      message: supportReplyInput.trim(),
+      senderName: adminUser ? adminUser.name : "StayNth Support Desk",
+      senderRole: isFounder ? "founder" : "architect",
+      email: adminUser?.email,
+    });
+
+    if (sent) {
+      setThreadMessages((prev) => [...prev, sent]);
+      setSupportReplyInput("");
+      refreshSupportThreads();
+    }
+    setSupportSending(false);
+  };
+
+  useEffect(() => {
+    if (authStep !== "authenticated") return;
+    refreshSupportThreads();
+    const interval = setInterval(() => {
+      refreshSupportThreads();
+      if (selectedThreadId) {
+        fetchThreadMessages(selectedThreadId).then((msgs) => setThreadMessages(msgs));
+      }
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [authStep, selectedThreadId]);
+
+  const totalUnreadSupport = useMemo(
+    () => supportThreads.reduce((acc, t) => acc + (t.unreadCount || 0), 0),
+    [supportThreads]
+  );
+
+  const selectedThread = useMemo(
+    () => supportThreads.find((t) => t.threadId === selectedThreadId) || null,
+    [supportThreads, selectedThreadId]
+  );
+
+  const filteredSupportThreads = useMemo(() => {
+    const q = supportFilterQuery.trim().toLowerCase();
+    if (!q) return supportThreads;
+    return supportThreads.filter(
+      (t) =>
+        (t.lastSender && t.lastSender.toLowerCase().includes(q)) ||
+        (t.propertyTitle && t.propertyTitle.toLowerCase().includes(q)) ||
+        (t.email && t.email.toLowerCase().includes(q)) ||
+        (t.lastMessage && t.lastMessage.toLowerCase().includes(q))
+    );
+  }, [supportThreads, supportFilterQuery]);
 
   // Email + Password login handler
   const handleEmailLogin = async (e: React.FormEvent) => {
@@ -748,6 +849,23 @@ export function AdminPage({
                   <Compass className="h-3.5 w-3.5 text-accent" /> Founder Expeditions ({expeditions.length})
                 </button>
               )}
+
+              <button
+                onClick={() => setActiveTab("support")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-medium transition",
+                  activeTab === "support"
+                    ? "bg-ink text-white"
+                    : "text-ink-soft hover:bg-paper hover:text-ink"
+                )}
+              >
+                <Headphones className="h-3.5 w-3.5 text-accent" /> Live Support Desk ({supportThreads.length})
+                {totalUnreadSupport > 0 && (
+                  <span className="ml-1 rounded-full bg-amber-400 px-1.5 py-0.2 font-mono text-[9px] font-bold text-ink animate-pulse">
+                    {totalUnreadSupport}
+                  </span>
+                )}
+              </button>
             </div>
 
             {/* Founder Metrics Bar */}
@@ -1374,7 +1492,288 @@ export function AdminPage({
                 )}
               </div>
             )}
+
+            {/* TAB 6: LIVE SUPPORT & CONCIERGE DESK */}
+            {activeTab === "support" && (
+              <div className="space-y-4">
+                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="font-serif text-[20px] font-bold text-ink">
+                        Live Customer & Concierge Desk
+                      </h2>
+                      <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-mono text-[9.5px] font-bold text-amber-900 border border-amber-200">
+                        100% In-App · Realtime
+                      </span>
+                    </div>
+                    <p className="text-[11.5px] text-ink-soft">
+                      Direct host & guest chats, paper sketch blueprint uploads, and 3D drafting concierge requests.
+                    </p>
+                  </div>
+                  <button
+                    onClick={refreshSupportThreads}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-paper px-3 py-1.5 text-[11px] font-medium text-ink hover:bg-paper-deep"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" /> Refresh Threads
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-4 rounded-2xl border border-line bg-white shadow-xs overflow-hidden h-[640px]">
+                  {/* Left Column: Threads List */}
+                  <div className="flex flex-col border-r border-line bg-paper/25">
+                    {/* Filter Input */}
+                    <div className="p-3 border-b border-line bg-white">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-ink-faint" />
+                        <input
+                          type="text"
+                          value={supportFilterQuery}
+                          onChange={(e) => setSupportFilterQuery(e.target.value)}
+                          placeholder="Search hosts, listings, emails…"
+                          className="h-8 w-full rounded-lg border border-line bg-paper pl-8 pr-2 text-[11px] outline-none focus:border-ink"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Threads Scroll */}
+                    <div className="flex-1 overflow-y-auto divide-y divide-line/60">
+                      {filteredSupportThreads.length === 0 ? (
+                        <div className="p-6 text-center text-ink-faint text-[11.5px]">
+                          No conversation threads found.
+                        </div>
+                      ) : (
+                        filteredSupportThreads.map((t) => {
+                          const isSelected = t.threadId === selectedThreadId;
+                          return (
+                            <button
+                              key={t.threadId}
+                              type="button"
+                              onClick={() => handleSelectThread(t.threadId)}
+                              className={cn(
+                                "w-full p-3.5 text-left transition flex flex-col gap-1 hover:bg-paper",
+                                isSelected ? "bg-amber-50/70 border-l-3 border-accent" : "bg-white"
+                              )}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold text-ink text-[12px] truncate max-w-[190px]">
+                                  {t.lastSender || "Guest / Host"}
+                                </span>
+                                <span className="font-mono text-[9px] text-ink-faint">
+                                  {new Date(t.lastActivity).toLocaleDateString([], { month: "short", day: "numeric" })}
+                                </span>
+                              </div>
+
+                              {t.propertyTitle && (
+                                <span className="inline-block rounded bg-amber-100/70 px-1.5 py-0.5 font-mono text-[9px] font-medium text-amber-900 truncate max-w-[240px]">
+                                  🏡 {t.propertyTitle}
+                                </span>
+                              )}
+
+                              <p className="text-[11px] text-ink-soft line-clamp-1">
+                                {t.lastMessage || "(Attachment uploaded)"}
+                              </p>
+
+                              <div className="mt-1 flex items-center justify-between font-mono text-[9px] text-ink-faint">
+                                <span>{t.messageCount} messages</span>
+                                {t.unreadCount > 0 && (
+                                  <span className="rounded-full bg-accent px-1.5 py-0.2 font-bold text-white">
+                                    {t.unreadCount} unread
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Chat Transcript & Reply Desk */}
+                  <div className="flex flex-col h-full bg-paper/10">
+                    {selectedThreadId ? (
+                      <>
+                        {/* Conversation Header */}
+                        <div className="flex items-center justify-between border-b border-line bg-white px-5 py-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-ink text-[13px]">
+                                {selectedThread?.lastSender || "Host / Guest"}
+                              </h3>
+                              {selectedThread?.email && (
+                                <span className="text-[11px] text-ink-soft">
+                                  ({selectedThread.email})
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-[10.5px] text-ink-faint">
+                              <span className="font-mono">Thread: {selectedThreadId}</span>
+                              {selectedThread?.propertyTitle && (
+                                <>
+                                  <span>•</span>
+                                  <span className="font-medium text-accent">
+                                    Property: {selectedThread.propertyTitle}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {selectedThread?.propertyTitle && (
+                            <button
+                              onClick={() => {
+                                onExit();
+                              }}
+                              className="inline-flex items-center gap-1 rounded-lg border border-line bg-paper px-2.5 py-1 text-[10.5px] font-medium text-ink hover:bg-paper-deep"
+                              title="Go to Studio to draft plan"
+                            >
+                              <ExternalLink className="h-3 w-3" /> Go to Studio
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Transcript Area */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+                          {supportLoading ? (
+                            <div className="flex h-full items-center justify-center text-[12px] text-ink-faint">
+                              Loading conversation messages…
+                            </div>
+                          ) : (
+                            threadMessages.map((msg) => {
+                              const isStaff =
+                                msg.senderRole === "architect" ||
+                                msg.senderRole === "founder" ||
+                                msg.senderRole === "admin";
+
+                              return (
+                                <div
+                                  key={msg.id}
+                                  className={cn(
+                                    "flex flex-col max-w-[80%]",
+                                    isStaff ? "ml-auto items-end" : "mr-auto items-start"
+                                  )}
+                                >
+                                  <div className="mb-0.5 flex items-center gap-1.5 text-[9.5px] text-ink-faint">
+                                    <span className="font-semibold text-ink">
+                                      {isStaff
+                                        ? msg.senderRole === "founder"
+                                          ? "👑 Founder Desk"
+                                          : "🏛️ StayNth Architect Team"
+                                        : msg.senderName || "Host"}
+                                    </span>
+                                    <span>·</span>
+                                    <span className="font-mono">
+                                      {new Date(msg.createdAt).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </span>
+                                  </div>
+
+                                  <div
+                                    className={cn(
+                                      "rounded-2xl px-4 py-2.5 text-[12px] leading-relaxed shadow-2xs",
+                                      isStaff
+                                        ? "rounded-tr-xs bg-ink text-white"
+                                        : "rounded-tl-xs border border-line bg-white text-ink"
+                                    )}
+                                  >
+                                    <p className="whitespace-pre-wrap">{msg.message}</p>
+
+                                    {/* Attachment / Floor plan sketch preview */}
+                                    {msg.attachmentUrl && (
+                                      <div className="mt-2 overflow-hidden rounded-xl border border-line bg-black/5 p-1">
+                                        <img
+                                          src={msg.attachmentUrl}
+                                          alt="Uploaded sketch"
+                                          className="max-h-60 rounded-lg object-contain cursor-pointer hover:opacity-90"
+                                          onClick={() => setSupportPreviewModalUrl(msg.attachmentUrl || null)}
+                                        />
+                                        <div className="mt-1 flex items-center justify-between px-1 text-[10px]">
+                                          <span className="font-mono text-ink-faint">Paper sketch / Plan</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setSupportPreviewModalUrl(msg.attachmentUrl || null)}
+                                            className="font-medium text-accent hover:underline"
+                                          >
+                                            View Full Screen (Zoom)
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Reply Box */}
+                        <form
+                          onSubmit={handleSendSupportReply}
+                          className="flex items-center gap-2 border-t border-line bg-white p-3"
+                        >
+                          <input
+                            type="text"
+                            value={supportReplyInput}
+                            onChange={(e) => setSupportReplyInput(e.target.value)}
+                            placeholder={`Reply as ${isFounder ? "Founder Desk" : "StayNth Architect"}…`}
+                            className="h-10 flex-1 rounded-xl border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink focus:bg-white"
+                          />
+                          <button
+                            type="submit"
+                            disabled={supportSending || !supportReplyInput.trim()}
+                            className="flex h-10 items-center gap-1.5 rounded-xl bg-ink px-4 text-[11.5px] font-semibold text-white transition hover:bg-ink/90 disabled:opacity-40"
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                            {supportSending ? "Sending…" : "Reply"}
+                          </button>
+                        </form>
+                      </>
+                    ) : (
+                      <div className="flex h-full flex-col items-center justify-center p-8 text-center text-ink-soft">
+                        <Headphones className="h-12 w-12 text-ink-faint/60 mb-2" />
+                        <h4 className="font-serif text-[15px] font-semibold text-ink">
+                          Select a conversation thread
+                        </h4>
+                        <p className="mt-1 max-w-sm text-[11.5px] text-ink-faint">
+                          Choose a host or guest inquiry on the left to view their sketches, answer questions, or coordinate floor plan drafting.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </main>
+        </div>
+      )}
+
+      {/* FULL-IMAGE SKETCH ZOOM MODAL FOR ARCHITECT DESK */}
+      {supportPreviewModalUrl && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+          <div className="relative max-h-[92vh] max-w-[92vw] overflow-hidden rounded-2xl bg-white p-3 shadow-2xl">
+            <button
+              onClick={() => setSupportPreviewModalUrl(null)}
+              className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-white hover:bg-black transition"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="mb-2 flex items-center justify-between border-b border-line pb-2 pr-12">
+              <span className="font-serif text-[14px] font-bold text-ink">Host Hand-Drawn Blueprint Sketch</span>
+              <a
+                href={supportPreviewModalUrl}
+                download="host_floorplan_sketch.jpg"
+                className="text-[11px] font-medium text-accent hover:underline"
+              >
+                Download High-Res
+              </a>
+            </div>
+            <img
+              src={supportPreviewModalUrl}
+              alt="Floor plan sketch zoom preview"
+              className="max-h-[82vh] max-w-full rounded-xl object-contain"
+            />
+          </div>
         </div>
       )}
 

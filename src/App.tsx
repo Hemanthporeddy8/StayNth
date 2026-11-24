@@ -32,6 +32,7 @@ import { RoomPhotoViewer } from "@/components/RoomPhotoViewer";
 import { PropertiesApp } from "@/components/PropertiesApp";
 import { AdminPage } from "@/components/AdminPage";
 import { ExpeditionsPage } from "@/components/ExpeditionsPage";
+import { SupportChatDrawer } from "@/components/SupportChatDrawer";
 
 const STORAGE_KEY = "staynth.plan.v1";
 
@@ -519,37 +520,43 @@ export default function App() {
 
   if (section === "expeditions") {
     return (
-      <ExpeditionsPage
-        onBack={() => {
-          window.history.replaceState(null, "", "#properties");
-          setSection("properties");
-        }}
-        onOpenMarketplace={() => {
-          window.history.replaceState(null, "", "#properties");
-          setSection("properties");
-        }}
-        onOpenStudio={() => {
-          window.history.replaceState(null, "", "/");
-          setSection("studio");
-        }}
-      />
+      <>
+        <ExpeditionsPage
+          onBack={() => {
+            window.history.replaceState(null, "", "#properties");
+            setSection("properties");
+          }}
+          onOpenMarketplace={() => {
+            window.history.replaceState(null, "", "#properties");
+            setSection("properties");
+          }}
+          onOpenStudio={() => {
+            window.history.replaceState(null, "", "/");
+            setSection("studio");
+          }}
+        />
+        <SupportChatDrawer />
+      </>
     );
   }
 
   if (section === "properties") {
     return (
-      <PropertiesApp
-        currentPlan={visiblePlan}
-        floorPlans={studioFloorPlans}
-        onBack={() => setSection("studio")}
-        onOpenExpeditions={() => {
-          window.history.replaceState(null, "", "#expeditions");
-          setSection("expeditions");
-        }}
-        resumeListing={resumeListing}
-        onResumed={() => setResumeListing(false)}
-        onDrawInStudio={startListingPlan}
-      />
+      <>
+        <PropertiesApp
+          currentPlan={visiblePlan}
+          floorPlans={studioFloorPlans}
+          onBack={() => setSection("studio")}
+          onOpenExpeditions={() => {
+            window.history.replaceState(null, "", "#expeditions");
+            setSection("expeditions");
+          }}
+          resumeListing={resumeListing}
+          onResumed={() => setResumeListing(false)}
+          onDrawInStudio={startListingPlan}
+        />
+        <SupportChatDrawer />
+      </>
     );
   }
 
@@ -779,6 +786,8 @@ export default function App() {
         <Info className="h-3.5 w-3.5" />
       </button>
 
+      {/* StayNth Concierge & Architect Support Desk */}
+      <SupportChatDrawer />
     </div>
   );
 }

@@ -141,6 +141,23 @@ async function ensureTables(db: D1Database) {
       "CREATE TABLE IF NOT EXISTS expeditions (id TEXT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT, region TEXT NOT NULL, season TEXT, vehicle_type TEXT, youtube_url TEXT, cover_photo TEXT, days_json TEXT NOT NULL, published INTEGER DEFAULT 1, created_at TEXT NOT NULL)"
     ).run();
 
+    await db.prepare(
+      `CREATE TABLE IF NOT EXISTS support_messages (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        user_id TEXT,
+        sender_name TEXT NOT NULL,
+        sender_role TEXT NOT NULL,
+        email TEXT,
+        property_id TEXT,
+        property_title TEXT,
+        message TEXT NOT NULL,
+        attachment_url TEXT,
+        status TEXT DEFAULT 'unread',
+        created_at TEXT NOT NULL
+      )`
+    ).run();
+
     // Safe SQLite schema migration: add newly introduced columns to existing tables if missing
     const propertyColumns = [
       "ALTER TABLE properties ADD COLUMN owner_id TEXT",
@@ -184,6 +201,8 @@ async function ensureTables(db: D1Database) {
       "CREATE INDEX IF NOT EXISTS idx_properties_owner ON properties(owner_id)",
       "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
       "CREATE INDEX IF NOT EXISTS idx_requests_prop ON requests(property_id)",
+      "CREATE INDEX IF NOT EXISTS idx_support_thread ON support_messages(thread_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_support_status ON support_messages(status, created_at)",
     ];
     for (const sql of indexes) {
       try {
@@ -729,6 +748,158 @@ export default {
           const id = url.pathname.replace("/api/expeditions/", "");
           await env.DB.prepare("DELETE FROM expeditions WHERE id = ?").bind(id).run();
           return json({ success: true, id });
+        }
+
+        // --- CUSTOMER & CONCIERGE SUPPORT ENDPOINTS ---
+
+        // GET /api/support
+        if (url.pathname === "/api/support" && request.method === "GET") {
+          const all = url.searchParams.get("all") === "true";
+          const threadId = url.searchParams.get("threadId");
+
+          if (all) {
+            const currentUser = await getUserFromRequest(request, env.DB);
+            if (!currentUser || (currentUser.role !== "founder" && currentUser.role !== "co_admin")) {
+              return json({ error: "Forbidden: Admin access required" }, 403);
+            }
+
+            const { results } = await env.DB.prepare(`
+              SELECT 
+                thread_id as threadId,
+                MAX(created_at) as lastActivity,
+                COUNT(*) as messageCount,
+                SUM(CASE WHEN status = 'unread' AND sender_role NOT IN ('founder', 'admin', 'architect') THEN 1 ELSE 0 END) as unreadCount,
+                (SELECT sender_name FROM support_messages sm2 WHERE sm2.thread_id = sm.thread_id ORDER BY created_at DESC LIMIT 1) as lastSender,
+                (SELECT message FROM support_messages sm2 WHERE sm2.thread_id = sm.thread_id ORDER BY created_at DESC LIMIT 1) as lastMessage,
+                (SELECT property_title FROM support_messages sm2 WHERE sm2.thread_id = sm.thread_id AND property_title IS NOT NULL ORDER BY created_at DESC LIMIT 1) as propertyTitle,
+                (SELECT email FROM support_messages sm2 WHERE sm2.thread_id = sm.thread_id AND email IS NOT NULL ORDER BY created_at DESC LIMIT 1) as email
+              FROM support_messages sm
+              GROUP BY thread_id
+              ORDER BY lastActivity DESC
+              LIMIT 100
+            `).all();
+
+            return json({ threads: results || [] });
+          }
+
+          if (!threadId) {
+            return json({ error: "threadId query parameter required" }, 400);
+          }
+
+          const { results } = await env.DB.prepare(
+            "SELECT * FROM support_messages WHERE thread_id = ? ORDER BY created_at ASC"
+          ).bind(threadId).all();
+
+          const messages = (results || []).map((r: any) => ({
+            id: r.id,
+            threadId: r.thread_id,
+            userId: r.user_id,
+            senderName: r.sender_name,
+            senderRole: r.sender_role,
+            email: r.email,
+            propertyId: r.property_id,
+            propertyTitle: r.property_title,
+            message: r.message,
+            attachmentUrl: r.attachment_url,
+            status: r.status,
+            createdAt: r.created_at,
+          }));
+
+          return json({ messages });
+        }
+
+        // POST /api/support
+        if (url.pathname === "/api/support" && request.method === "POST") {
+          const body = (await request.json()) as any;
+          const threadId = (body.threadId || "").trim();
+          const message = (body.message || "").trim();
+          const attachmentUrl = body.attachmentUrl || null;
+
+          if (!threadId || (!message && !attachmentUrl)) {
+            return json({ error: "threadId and either message or attachment are required." }, 400);
+          }
+
+          const currentUser = await getUserFromRequest(request, env.DB);
+          const now = new Date().toISOString();
+          const id = "msg_" + crypto.randomUUID().slice(0, 12);
+
+          let senderRole = body.senderRole || "guest";
+          let senderName = (body.senderName || "").trim() || "Guest";
+          let userId = body.userId || null;
+          let email = (body.email || "").trim() || null;
+
+          if (currentUser) {
+            userId = currentUser.id;
+            if (currentUser.role === "founder") {
+              senderRole = "founder";
+              senderName = currentUser.name || "Founder Desk";
+              email = currentUser.email;
+            } else if (currentUser.role === "co_admin") {
+              senderRole = "architect";
+              senderName = currentUser.name || "StayNth Architect";
+              email = currentUser.email;
+            }
+          }
+
+          await env.DB.prepare(
+            `INSERT INTO support_messages (
+              id, thread_id, user_id, sender_name, sender_role, email, property_id, property_title, message, attachment_url, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            id,
+            threadId,
+            userId,
+            senderName,
+            senderRole,
+            email,
+            body.propertyId || null,
+            body.propertyTitle || null,
+            message || "(Attachment)",
+            attachmentUrl,
+            "unread",
+            now
+          ).run();
+
+          const record = {
+            id,
+            threadId,
+            userId,
+            senderName,
+            senderRole,
+            email,
+            propertyId: body.propertyId || null,
+            propertyTitle: body.propertyTitle || null,
+            message: message || "(Attachment)",
+            attachmentUrl,
+            status: "unread",
+            createdAt: now,
+          };
+
+          return json({ success: true, message: record });
+        }
+
+        // PATCH /api/support/read
+        if (url.pathname === "/api/support/read" && request.method === "PATCH") {
+          const body = (await request.json()) as any;
+          const threadId = (body.threadId || "").trim();
+          if (!threadId) {
+            return json({ error: "threadId required" }, 400);
+          }
+
+          const currentUser = await getUserFromRequest(request, env.DB);
+          const isAdmin = currentUser && (currentUser.role === "founder" || currentUser.role === "co_admin");
+
+          if (isAdmin) {
+            await env.DB.prepare(
+              "UPDATE support_messages SET status = 'read' WHERE thread_id = ? AND sender_role NOT IN ('founder', 'admin', 'architect')"
+            ).bind(threadId).run();
+          } else {
+            await env.DB.prepare(
+              "UPDATE support_messages SET status = 'read' WHERE thread_id = ? AND sender_role IN ('founder', 'admin', 'architect')"
+            ).bind(threadId).run();
+          }
+
+          return json({ success: true });
         }
 
         return json({ error: "Endpoint not found" }, 404);
