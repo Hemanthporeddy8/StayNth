@@ -33,6 +33,7 @@ import { PropertiesApp } from "@/components/PropertiesApp";
 import { AdminPage } from "@/components/AdminPage";
 import { ExpeditionsPage } from "@/components/ExpeditionsPage";
 import { SupportChatDrawer } from "@/components/SupportChatDrawer";
+import { SupportDemoPage } from "@/components/SupportDemoPage";
 
 const STORAGE_KEY = "staynth.plan.v1";
 
@@ -65,7 +66,7 @@ function loadPersisted(): Persisted | null {
 
 export default function App() {
   const persisted = useMemo(loadPersisted, []);
-  const [section, setSection] = useState<"studio" | "properties" | "expeditions" | "admin">(() => {
+  const [section, setSection] = useState<"studio" | "properties" | "expeditions" | "admin" | "demo">(() => {
     if (typeof window === "undefined") return "studio";
     const path = window.location.pathname.toLowerCase();
     const hash = window.location.hash.toLowerCase();
@@ -76,6 +77,16 @@ export default function App() {
       hash.startsWith("#admin")
     ) {
       return "admin";
+    }
+    if (
+      hash === "#demo" ||
+      hash.startsWith("#demo") ||
+      hash === "#support-demo" ||
+      hash.startsWith("#support-demo") ||
+      path === "/demo" ||
+      path.startsWith("/demo")
+    ) {
+      return "demo";
     }
     if (
       hash.startsWith("#expedition") ||
@@ -110,6 +121,15 @@ export default function App() {
       ) {
         setSection("admin");
       } else if (
+        hash === "#demo" ||
+        hash.startsWith("#demo") ||
+        hash === "#support-demo" ||
+        hash.startsWith("#support-demo") ||
+        path === "/demo" ||
+        path.startsWith("/demo")
+      ) {
+        setSection("demo");
+      } else if (
         hash.startsWith("#expedition") ||
         hash.startsWith("#trip") ||
         hash === "#expeditions" ||
@@ -125,6 +145,8 @@ export default function App() {
         path.startsWith("/marketplace")
       ) {
         setSection("properties");
+      } else {
+        setSection("studio");
       }
     };
     handleRoute();
@@ -512,6 +534,17 @@ export default function App() {
       <AdminPage
         onExit={() => {
           window.history.replaceState(null, "", "/");
+          setSection("properties");
+        }}
+      />
+    );
+  }
+
+  if (section === "demo") {
+    return (
+      <SupportDemoPage
+        onExit={() => {
+          window.history.replaceState(null, "", "/#properties");
           setSection("properties");
         }}
       />

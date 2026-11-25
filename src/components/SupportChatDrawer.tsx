@@ -204,13 +204,24 @@ export function SupportChatDrawer() {
               </div>
             </div>
 
-            <button
-              onClick={() => setOpen(false)}
-              className="rounded-lg p-1.5 text-white/70 hover:bg-white/10 hover:text-white transition"
-              aria-label="Close chat"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <a
+                href="#demo"
+                onClick={() => setOpen(false)}
+                className="rounded-lg border border-amber-400/40 bg-amber-400/15 px-2 py-1 text-[10px] font-mono text-amber-200 hover:bg-amber-400/25 transition shadow-2xs"
+                title="Open Bank-Style 12h Ticket Demo Sandbox"
+              >
+                🧪 Try Sandbox Demo
+              </a>
+
+              <button
+                onClick={() => setOpen(false)}
+                className="rounded-lg p-1.5 text-white/70 hover:bg-white/10 hover:text-white transition"
+                aria-label="Close chat"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Property Context Banner (if triggered from listing) */}
