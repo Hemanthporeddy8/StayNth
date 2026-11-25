@@ -34,6 +34,7 @@ import { AdminPage } from "@/components/AdminPage";
 import { ExpeditionsPage } from "@/components/ExpeditionsPage";
 import { SupportChatDrawer } from "@/components/SupportChatDrawer";
 import { SupportDemoPage } from "@/components/SupportDemoPage";
+import { cn } from "@/utils/cn";
 
 const STORAGE_KEY = "staynth.plan.v1";
 
