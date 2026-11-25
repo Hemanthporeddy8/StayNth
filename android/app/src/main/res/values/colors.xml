@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="staynth_ink">#1C1917</color>
+    <color name="staynth_accent">#D97706</color>
+    <color name="staynth_paper">#FAF9F6</color>
+    <color name="staynth_surface">#FFFFFF</color>
+    <color name="staynth_line">#E7E5E4</color>
+    <color name="staynth_text_soft">#78716C</color>
+</resources>

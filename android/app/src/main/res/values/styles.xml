@@ -1,0 +1,13 @@
+<resources>
+    <!-- Base application theme. -->
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Customize your theme here. -->
+        <item name="colorPrimary">@color/staynth_ink</item>
+        <item name="colorPrimaryVariant">@color/staynth_ink</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">@color/staynth_accent</item>
+        <item name="android:statusBarColor">@color/staynth_ink</item>
+        <item name="android:windowBackground">@color/staynth_paper</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
