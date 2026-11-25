@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -12,14 +12,18 @@ import {
   Image as ImageIcon,
   Layers,
   Lock,
+  MapPin,
+  Maximize2,
   MessageSquare,
   Paperclip,
+  PencilRuler,
   RefreshCw,
   Search,
   Send,
   Shield,
   ShieldCheck,
   Sparkles,
+  Split,
   Upload,
   User,
   X,
@@ -27,8 +31,11 @@ import {
 } from "lucide-react";
 import { fileToRoomImage } from "@/lib/imageUpload";
 import { sendSupportMessage } from "@/lib/support";
+import { FOOTPRINT_PRESETS, clamp, generatePlan, summarize } from "@/lib/plan";
+import { MiniPlan } from "@/components/Dialogs";
 import { cn } from "@/utils/cn";
 import { StayNthIcon } from "@/components/StayNthLogo";
+import type { GenerateOptions, Plan } from "@/types";
 
 interface FAQItem {
   id: string;
@@ -188,28 +195,37 @@ const FAQ_DATABASE: FAQItem[] = [
   },
 ];
 
-interface TicketRecord {
+export interface TicketMessage {
+  id: string;
+  sender: "host" | "founder" | "system";
+  text: string;
+  attachmentUrl?: string | null;
+  timestamp: string;
+}
+
+export interface TicketRecord {
   id: string;
   category: string;
   propertyTitle: string;
   hostName: string;
   email: string;
-  message: string;
   sketchUrl: string | null;
-  status: "open" | "in_progress" | "resolved";
+  status: "open" | "needs_interior_sketch" | "in_progress" | "agent_visit_offered" | "resolved";
   createdAt: string;
   resolvedAt?: string;
   resolutionNote?: string;
+  messages: TicketMessage[];
+  draftedPlan?: Plan;
 }
 
 export function SupportDemoPage({ onExit }: { onExit: () => void }) {
   // Navigation / screen state
-  const [activeScreen, setActiveScreen] = useState<"menu" | "faq" | "ticket_form" | "ticket_success">("menu");
+  const [activeScreen, setActiveScreen] = useState<"menu" | "faq" | "ticket_form" | "ticket_chat">("menu");
   const [selectedFaq, setSelectedFaq] = useState<FAQItem | null>(null);
   const [demoViewTab, setDemoViewTab] = useState<"customer" | "founder">("customer");
 
   // Telemetry Counters
-  const [inMemoryActionsCount, setInMemoryActionsCount] = useState<number>(0);
+  const [inMemoryActionsCount, setInMemoryActionsCount] = useState<number>(14);
   const [dbWritesCount, setDbWritesCount] = useState<number>(0);
 
   // Ticket Form state
@@ -220,9 +236,13 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
   const [ticketMessage, setTicketMessage] = useState("");
   const [attachedSketch, setAttachedSketch] = useState<{ name: string; url: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [createdTicket, setCreatedTicket] = useState<TicketRecord | null>(null);
 
-  // Simulated founder desk state
+  // Active customer ticket ID (defaults to sample ticket TK-1082)
+  const [activeCustomerTicketId, setActiveCustomerTicketId] = useState<string>("TK-1082");
+  const [customerReplyText, setCustomerReplyText] = useState("");
+  const [customerReplyAttachment, setCustomerReplyAttachment] = useState<{ name: string; url: string } | null>(null);
+
+  // Simulated founder desk state with realistic initial ticket (matches screenshot)
   const [founderTickets, setFounderTickets] = useState<TicketRecord[]>([
     {
       id: "TK-1082",
@@ -230,14 +250,49 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
       propertyTitle: "Wayanad Rain Mist Estate",
       hostName: "Karthik Nair",
       email: "karthik@wayanadstays.in",
-      message: "Please draft ground + 1st floor plan from attached paper sketch. Main hall is 20x15 ft.",
-      sketchUrl: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=400&q=80",
+      sketchUrl: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=600&q=80", // Exterior villa photo!
       status: "open",
       createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+      messages: [
+        {
+          id: "m1",
+          sender: "host",
+          text: "Hi StayNth, please draft ground + 1st floor 3D plan from my attached photo. Looking forward to listing on StayNth!",
+          attachmentUrl: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=600&q=80",
+          timestamp: "08:32 AM",
+        },
+      ],
     },
   ]);
-  const [selectedFounderTicket, setSelectedFounderTicket] = useState<TicketRecord | null>(null);
-  const [resolvingNote, setResolvingNote] = useState("");
+
+  const [selectedFounderTicketId, setSelectedFounderTicketId] = useState<string>("TK-1082");
+  const [founderReplyInput, setFounderReplyInput] = useState("");
+
+  // Side-by-Side 3D Drafting Studio Modal State
+  const [draftingStudioModalOpen, setDraftingStudioModalOpen] = useState(false);
+  const [studioDraftOpts, setStudioDraftOpts] = useState<GenerateOptions>({
+    bedrooms: 2,
+    bathrooms: 2,
+    width: 36,
+    depth: 28,
+  });
+
+  const selectedFounderTicket = useMemo(
+    () => founderTickets.find((t) => t.id === selectedFounderTicketId) || founderTickets[0] || null,
+    [founderTickets, selectedFounderTicketId]
+  );
+
+  const activeCustomerTicket = useMemo(
+    () => founderTickets.find((t) => t.id === activeCustomerTicketId) || founderTickets[0] || null,
+    [founderTickets, activeCustomerTicketId]
+  );
+
+  // Live drafted plan generated in studio
+  const currentStudioPlan = useMemo(
+    () => generatePlan(studioDraftOpts, selectedFounderTicket?.propertyTitle || "Draft Plan"),
+    [studioDraftOpts, selectedFounderTicket?.propertyTitle]
+  );
+  const studioSummary = useMemo(() => summarize(currentStudioPlan), [currentStudioPlan]);
 
   const trackInMemory = () => {
     setInMemoryActionsCount((prev) => prev + 1);
@@ -267,6 +322,19 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
     }
   };
 
+  const handleCustomerReplySketchUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    trackInMemory();
+    try {
+      const processed = await fileToRoomImage(file);
+      setCustomerReplyAttachment({ name: processed.name || file.name, url: processed.url });
+    } catch {
+      alert("Please upload a valid image file.");
+    }
+  };
+
+  // Submit new ticket (1 single real DB write)
   const handleSubmitTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -278,65 +346,163 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
       propertyTitle: propertyTitle.trim() || "Untitled Property",
       hostName: hostName.trim() || "Guest Host",
       email: email.trim() || "host@example.com",
-      message: ticketMessage.trim() || `Request for ${ticketCategory}`,
       sketchUrl: attachedSketch?.url || null,
       status: "open",
       createdAt: new Date().toISOString(),
+      messages: [
+        {
+          id: "m_init",
+          sender: "host",
+          text: ticketMessage.trim() || `Request for ${ticketCategory}.`,
+          attachmentUrl: attachedSketch?.url || null,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ],
     };
 
     // Exactly 1 real D1 Database Write
     try {
       await sendSupportMessage({
         threadId: `th_ticket_${ticketId}`,
-        message: `[${ticketId}] Category: ${ticketCategory} | Property: ${newRecord.propertyTitle} | Note: ${newRecord.message}`,
+        message: `[${ticketId}] Category: ${ticketCategory} | Property: ${newRecord.propertyTitle} | Note: ${newRecord.messages[0].text}`,
         attachmentUrl: newRecord.sketchUrl,
         senderName: newRecord.hostName,
         senderRole: "host",
         email: newRecord.email,
         propertyTitle: newRecord.propertyTitle,
       });
-      // Increment real DB write counter
       setDbWritesCount((prev) => prev + 1);
     } catch {
-      // In offline/sandbox fallback, still record write counter
       setDbWritesCount((prev) => prev + 1);
     }
 
     setFounderTickets((prev) => [newRecord, ...prev]);
-    setCreatedTicket(newRecord);
+    setActiveCustomerTicketId(ticketId);
+    setSelectedFounderTicketId(ticketId);
     setSubmitting(false);
-    setActiveScreen("ticket_success");
+    setActiveScreen("ticket_chat");
   };
 
-  const handleResolveTicket = (id: string) => {
+  // Send message inside active ticket (from customer side)
+  const handleSendCustomerReply = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customerReplyText.trim() && !customerReplyAttachment) return;
+    trackInMemory();
+
+    const newMsg: TicketMessage = {
+      id: "m_" + Date.now(),
+      sender: "host",
+      text: customerReplyText.trim() || "Uploaded floor plan blueprint sketch.",
+      attachmentUrl: customerReplyAttachment?.url || null,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+
     setFounderTickets((prev) =>
       prev.map((t) =>
-        t.id === id
+        t.id === activeCustomerTicketId
           ? {
               ...t,
-              status: "resolved",
-              resolvedAt: new Date().toISOString(),
-              resolutionNote: resolvingNote.trim() || "3D Floor plan drafted in Studio & linked to listing.",
+              // If host uploaded a sketch after being asked, update sketchUrl & status
+              sketchUrl: customerReplyAttachment?.url || t.sketchUrl,
+              status: customerReplyAttachment ? "in_progress" : t.status,
+              messages: [...t.messages, newMsg],
             }
           : t
       )
     );
-    setSelectedFounderTicket((prev) =>
-      prev && prev.id === id
-        ? {
-            ...prev,
-            status: "resolved",
-            resolvedAt: new Date().toISOString(),
-            resolutionNote: resolvingNote.trim() || "3D Floor plan drafted in Studio & linked to listing.",
-          }
-        : null
+
+    setCustomerReplyText("");
+    setCustomerReplyAttachment(null);
+  };
+
+  // Send message inside active ticket (from founder desk side)
+  const handleSendFounderReply = (textToSend?: string) => {
+    const text = textToSend || founderReplyInput.trim();
+    if (!text || !selectedFounderTicket) return;
+    trackInMemory();
+
+    let nextStatus = selectedFounderTicket.status;
+    if (text.includes("inside room layout") || text.includes("exterior")) {
+      nextStatus = "needs_interior_sketch";
+    } else if (text.includes("Ground Agent") || text.includes("visit your property")) {
+      nextStatus = "agent_visit_offered";
+    }
+
+    const newMsg: TicketMessage = {
+      id: "f_" + Date.now(),
+      sender: "founder",
+      text,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+
+    setFounderTickets((prev) =>
+      prev.map((t) =>
+        t.id === selectedFounderTicket.id
+          ? {
+              ...t,
+              status: nextStatus,
+              messages: [...t.messages, newMsg],
+            }
+          : t
+      )
     );
-    setResolvingNote("");
-    alert(`Ticket #${id} marked as Resolved! 3D plan status updated.`);
+
+    setFounderReplyInput("");
+  };
+
+  // Quick Action 1: Ask for Interior Sketch
+  const handleRequestInteriorSketch = () => {
+    handleSendFounderReply(
+      `Hi ${selectedFounderTicket?.hostName || "Host"}! We received your photo, but it only shows the exterior building. To draft your 1:1 true-scale 3D floor plan, please take a piece of paper, draw the internal rooms/doors with rough dimensions, and reply with a photo right here!`
+    );
+  };
+
+  // Quick Action 2: Offer Ground Agent Visit
+  const handleOfferAgentVisit = () => {
+    handleSendFounderReply(
+      `Hi ${selectedFounderTicket?.hostName || "Host"}, no worries if drawing a layout is difficult! A StayNth Verified Ground Partner can visit your property in person to laser-measure all rooms and scan your 3D walkthrough. Fee is ₹0 upfront (deducted from your 1st guest booking). Would you like to schedule a visit?`
+    );
+  };
+
+  // Quick Action 3: Open Side-by-Side 3D Studio
+  const handleOpenStudio = () => {
+    trackInMemory();
+    setDraftingStudioModalOpen(true);
+  };
+
+  // Finish 3D Drafting in Studio & Resolve Ticket
+  const handleSaveDrafted3DPlan = () => {
+    if (!selectedFounderTicket) return;
+    trackInMemory();
+
+    const resolveMsg: TicketMessage = {
+      id: "f_resolve",
+      sender: "founder",
+      text: `🎉 Great news! Founder Hemanth & StayNth Architects have drafted your interactive 3D Floor Plan (${studioSummary.bedrooms} BHK · ${Math.round(studioSummary.area)} sq ft). It is now verified and active on your listing!`,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+
+    setFounderTickets((prev) =>
+      prev.map((t) =>
+        t.id === selectedFounderTicket.id
+          ? {
+              ...t,
+              status: "resolved",
+              resolvedAt: new Date().toISOString(),
+              resolutionNote: `Drafted ${studioSummary.bedrooms} BHK plan (${Math.round(studioSummary.area)} sq ft net) in Studio.`,
+              draftedPlan: currentStudioPlan,
+              messages: [...t.messages, resolveMsg],
+            }
+          : t
+      )
+    );
+
+    setDraftingStudioModalOpen(false);
+    alert(`3D Floor Plan attached to listing "${selectedFounderTicket.propertyTitle}" & Ticket #${selectedFounderTicket.id} marked as RESOLVED!`);
   };
 
   return (
-    <div className="min-h-screen bg-paper-deep text-ink flex flex-col">
+    <div className="min-h-screen bg-paper-deep text-ink flex flex-col font-sans">
       {/* DEMO TOP HEADER */}
       <header className="sticky top-0 z-40 border-b border-line bg-white/95 backdrop-blur-md px-4 py-3 sm:px-8">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -355,7 +521,7 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                   Bank-Style Concierge & 12h Ticket Desk Demo
                 </h1>
                 <span className="text-[10px] text-ink-faint">
-                  Interactive Sandbox · 0 External AI · 100% In-Memory FAQs
+                  Interactive Sandbox · Two-Way Ticket Chat · Side-by-Side Studio
                 </span>
               </div>
             </div>
@@ -397,7 +563,7 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                   : "text-ink-soft hover:bg-paper-deep hover:text-ink"
               )}
             >
-              <User className="h-3.5 w-3.5" /> 1. Customer / Host Experience
+              <User className="h-3.5 w-3.5" /> 1. Customer / Host Experience (Chat Enabled)
             </button>
 
             <button
@@ -412,7 +578,7 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                   : "text-ink-soft hover:bg-paper-deep hover:text-ink"
               )}
             >
-              <ShieldCheck className="h-3.5 w-3.5 text-accent" /> 2. Founder Desk (12h Batch Resolution)
+              <ShieldCheck className="h-3.5 w-3.5 text-accent" /> 2. Founder Desk (Side-by-Side 3D Studio & Agent Visit)
               <span className="rounded-full bg-accent/20 px-1.5 py-0.2 font-mono text-[9px] text-accent font-bold">
                 {founderTickets.length}
               </span>
@@ -421,19 +587,19 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
 
           <div className="hidden sm:block text-[11px] text-ink-faint">
             {demoViewTab === "customer"
-              ? "⚡ Click questions to test 0-write memory speed"
-              : "🛠️ Founder works in batches; no live chat anxiety"}
+              ? "⚡ Two-way ticket chat allows host to send interior sketches"
+              : "🛠️ Founder draws 3D model beside sketch or offers agent visit"}
           </div>
         </div>
       </div>
 
       {/* MAIN DEMO BODY */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {/* TAB 1: CUSTOMER EXPERIMENTAL DESK */}
+        {/* TAB 1: CUSTOMER VIEW */}
         {demoViewTab === "customer" && (
-          <div className="grid grid-cols-1 lg:grid-cols-[440px_1fr] gap-6 items-start">
-            {/* The Guided Interactive Widget Preview */}
-            <div className="rounded-2xl border border-line bg-white shadow-xl overflow-hidden flex flex-col h-[680px]">
+          <div className="grid grid-cols-1 lg:grid-cols-[460px_1fr] gap-6 items-start">
+            {/* The Interactive Drawer Sandbox */}
+            <div className="rounded-2xl border border-line bg-white shadow-xl overflow-hidden flex flex-col h-[700px]">
               {/* Widget Header */}
               <div className="border-b border-line bg-ink p-4 text-white">
                 <div className="flex items-center justify-between">
@@ -451,27 +617,48 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                         </span>
                       </div>
                       <p className="text-[10px] text-white/70">
-                        100% In-Memory Guide · 12-Hour Ticket Resolution
+                        In-Memory Guide · 12h SLA · Active Ticket Chat
                       </p>
                     </div>
                   </div>
 
-                  {activeScreen !== "menu" && (
-                    <button
-                      onClick={() => {
-                        trackInMemory();
-                        setActiveScreen("menu");
-                      }}
-                      className="rounded-lg p-1 text-white/70 hover:bg-white/10 hover:text-white"
-                      title="Back to menu"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {/* View Active Ticket Toggle */}
+                    {activeCustomerTicket && (
+                      <button
+                        onClick={() => {
+                          trackInMemory();
+                          setActiveScreen(activeScreen === "ticket_chat" ? "menu" : "ticket_chat");
+                        }}
+                        className={cn(
+                          "rounded-lg px-2.5 py-1 font-mono text-[10px] font-bold transition flex items-center gap-1",
+                          activeScreen === "ticket_chat"
+                            ? "bg-amber-400 text-ink"
+                            : "bg-white/15 text-white hover:bg-white/25"
+                        )}
+                      >
+                        <MessageSquare className="h-3 w-3" />
+                        {activeScreen === "ticket_chat" ? "Back to FAQs" : `Ticket #${activeCustomerTicket.id}`}
+                      </button>
+                    )}
+
+                    {activeScreen !== "menu" && activeScreen !== "ticket_chat" && (
+                      <button
+                        onClick={() => {
+                          trackInMemory();
+                          setActiveScreen("menu");
+                        }}
+                        className="rounded-lg p-1 text-white/70 hover:bg-white/10 hover:text-white"
+                        title="Back to menu"
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Widget Scroll Content */}
+              {/* Widget Scroll Area */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-paper/30">
                 {/* SCREEN 1: MAIN MENU (0 DB WRITES) */}
                 {activeScreen === "menu" && (
@@ -565,7 +752,7 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                           className="w-full flex items-center justify-center gap-2 rounded-xl border border-line bg-white py-2 text-[11px] font-medium text-ink hover:bg-paper-deep transition shadow-2xs"
                         >
                           <FileText className="h-3.5 w-3.5 text-accent" />
-                          Still need help? Open a Ticket
+                          Not satisfied? Open a Ticket with Founder
                         </button>
                       )}
 
@@ -660,7 +847,7 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
 
                       <div>
                         <label className="block text-[10.5px] font-medium text-ink-soft mb-1">
-                          Attach Paper Sketch / Blueprint Photo
+                          Attach Photo or Paper Sketch
                         </label>
                         {attachedSketch ? (
                           <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-50/70 p-2 text-[11px]">
@@ -679,7 +866,7 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                         ) : (
                           <label className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-paper/60 p-3 cursor-pointer hover:bg-paper transition">
                             <Upload className="h-5 w-5 text-ink-faint mb-1" />
-                            <span className="text-[11px] font-medium text-ink">Upload hand-drawn photo</span>
+                            <span className="text-[11px] font-medium text-ink">Upload blueprint photo / sketch</span>
                             <span className="text-[9.5px] text-ink-faint">Auto-compressed to &lt; 150KB</span>
                             <input
                               type="file"
@@ -699,7 +886,7 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                           rows={2}
                           value={ticketMessage}
                           onChange={(e) => setTicketMessage(e.target.value)}
-                          placeholder="e.g. Ground floor has 2 master bedrooms, kitchen on east side..."
+                          placeholder="e.g. Please draft 3D plan. 2-story house..."
                           className="w-full rounded-lg border border-line bg-paper p-2 text-[11.5px] text-ink outline-none focus:border-ink resize-none"
                         />
                       </div>
@@ -726,118 +913,174 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                   </form>
                 )}
 
-                {/* SCREEN 4: TICKET CONFIRMATION & RECEIPT */}
-                {activeScreen === "ticket_success" && createdTicket && (
-                  <div className="rounded-2xl border border-line bg-white p-5 text-center shadow-xs space-y-4">
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-800">
-                      <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-                    </div>
-
-                    <div>
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 font-bold">
-                        Ticket Logged in Cloudflare D1
-                      </span>
-                      <h3 className="font-serif text-[18px] font-bold text-ink mt-2">
-                        Ticket #{createdTicket.id} Created
-                      </h3>
-                      <p className="text-[11px] text-ink-soft mt-1">
-                        Our architectural team has safely received your request for{" "}
-                        <strong className="text-ink">{createdTicket.propertyTitle}</strong>.
+                {/* SCREEN 4: ACTIVE TWO-WAY TICKET CHAT MODE */}
+                {activeScreen === "ticket_chat" && activeCustomerTicket && (
+                  <div className="flex flex-col h-full space-y-3">
+                    {/* Ticket Status Bar */}
+                    <div className="rounded-xl border border-line bg-white p-3 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[13px] text-ink">
+                          Ticket #{activeCustomerTicket.id}
+                        </span>
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 font-mono text-[9px] font-bold uppercase",
+                            activeCustomerTicket.status === "open"
+                              ? "bg-amber-100 text-amber-900 border border-amber-200"
+                              : activeCustomerTicket.status === "needs_interior_sketch"
+                              ? "bg-red-100 text-red-900 border border-red-200 animate-pulse"
+                              : activeCustomerTicket.status === "agent_visit_offered"
+                              ? "bg-blue-100 text-blue-900 border border-blue-200"
+                              : "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                          )}
+                        >
+                          {activeCustomerTicket.status === "open" && "● Open (12h SLA)"}
+                          {activeCustomerTicket.status === "needs_interior_sketch" && "⚠️ Action: Send Inside Sketch"}
+                          {activeCustomerTicket.status === "agent_visit_offered" && "📍 Agent Visit Offered"}
+                          {activeCustomerTicket.status === "resolved" && "✓ 3D Model Live"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-ink-soft truncate mt-0.5">
+                        Property: <strong>{activeCustomerTicket.propertyTitle}</strong>
                       </p>
                     </div>
 
-                    <div className="rounded-xl border border-line bg-paper/50 p-3 text-left space-y-2 text-[11px]">
-                      <div className="flex justify-between border-b border-line pb-1.5">
-                        <span className="text-ink-faint">Expected SLA:</span>
-                        <strong className="text-accent">Within 12 to 24 Hours</strong>
-                      </div>
-                      <div className="flex justify-between border-b border-line pb-1.5">
-                        <span className="text-ink-faint">Category:</span>
-                        <span className="text-ink font-medium">{createdTicket.category}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-ink-faint">Status:</span>
-                        <span className="font-bold text-amber-700">⏳ Open · In Founder Queue</span>
-                      </div>
+                    {/* Chat Bubble Stream */}
+                    <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+                      {activeCustomerTicket.messages.map((m) => {
+                        const isFounder = m.sender === "founder";
+                        return (
+                          <div
+                            key={m.id}
+                            className={cn(
+                              "flex flex-col max-w-[85%]",
+                              isFounder ? "mr-auto items-start" : "ml-auto items-end"
+                            )}
+                          >
+                            <span className="text-[9.5px] font-mono text-ink-faint mb-0.5">
+                              {isFounder ? "👑 Founder Hemanth" : "You (Host)"} · {m.timestamp}
+                            </span>
+                            <div
+                              className={cn(
+                                "rounded-2xl px-3.5 py-2 text-[11.5px] leading-relaxed shadow-2xs",
+                                isFounder
+                                  ? "rounded-tl-xs border border-line bg-white text-ink"
+                                  : "rounded-tr-xs bg-ink text-white"
+                              )}
+                            >
+                              <p className="whitespace-pre-wrap">{m.text}</p>
+                              {m.attachmentUrl && (
+                                <div className="mt-2 overflow-hidden rounded-lg border border-black/10">
+                                  <img
+                                    src={m.attachmentUrl}
+                                    alt="Attached"
+                                    className="max-h-40 w-full object-cover rounded"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
 
-                    <div className="flex flex-col gap-2 pt-2">
-                      <button
-                        onClick={() => {
-                          trackInMemory();
-                          setDemoViewTab("founder");
-                        }}
-                        className="w-full rounded-xl bg-accent py-2 text-[11.5px] font-semibold text-white shadow-2xs hover:bg-accent/90"
-                      >
-                        👉 View This Ticket in Founder Desk
-                      </button>
+                    {/* Host Reply Composer */}
+                    <form
+                      onSubmit={handleSendCustomerReply}
+                      className="border-t border-line pt-2 flex flex-col gap-1.5"
+                    >
+                      {customerReplyAttachment && (
+                        <div className="flex items-center justify-between bg-paper p-1.5 rounded-lg border border-line text-[10px]">
+                          <span className="truncate font-mono">{customerReplyAttachment.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => setCustomerReplyAttachment(null)}
+                            className="text-red-600"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
 
-                      <button
-                        onClick={() => {
-                          trackInMemory();
-                          setActiveScreen("menu");
-                        }}
-                        className="w-full text-center text-[11px] text-ink-soft hover:text-ink py-1"
-                      >
-                        ← Back to FAQ Menu
-                      </button>
-                    </div>
+                      <div className="flex items-center gap-1.5">
+                        <label className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-line bg-white text-ink-soft hover:bg-paper cursor-pointer" title="Attach hand-drawn paper sketch">
+                          <Paperclip className="h-4 w-4" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleCustomerReplySketchUpload}
+                          />
+                        </label>
+
+                        <input
+                          type="text"
+                          value={customerReplyText}
+                          onChange={(e) => setCustomerReplyText(e.target.value)}
+                          placeholder={
+                            customerReplyAttachment
+                              ? "Add note or send sketch photo…"
+                              : "Reply to Founder or ask questions…"
+                          }
+                          className="h-9 flex-1 rounded-xl border border-line bg-white px-3 text-[11.5px] text-ink outline-none focus:border-ink"
+                        />
+
+                        <button
+                          type="submit"
+                          disabled={!customerReplyText.trim() && !customerReplyAttachment}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-white disabled:opacity-40"
+                        >
+                          <Send className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </form>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Explanation / Features Panel on the Right */}
+            {/* Explanation / Architecture Highlights */}
             <div className="space-y-4">
               <div className="rounded-2xl border border-line bg-white p-5 sm:p-6 shadow-xs space-y-4">
                 <div className="flex items-center gap-2">
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                    <Zap className="h-4.5 w-4.5" />
+                    <MessageSquare className="h-4.5 w-4.5" />
                   </span>
                   <div>
                     <h3 className="font-serif text-[16px] font-bold text-ink">
-                      Why This Bank-Style Model Is Superior
+                      Active Two-Way Ticket Chat
                     </h3>
                     <p className="text-[11px] text-ink-soft">
-                      Zero live chat pressure · Zero database bloat · Total legal privacy
+                      Solves the "exterior photo only" problem · Instant follow-up
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-                  <div className="rounded-xl border border-line bg-paper/40 p-3.5 space-y-1">
-                    <div className="flex items-center gap-1.5 font-bold text-[12px] text-ink">
-                      <Zap className="h-3.5 w-3.5 text-amber-500" /> 100% In-Memory FAQs
-                    </div>
-                    <p className="text-[10.5px] text-ink-soft leading-relaxed">
-                      All routine questions (pricing, how to list, commission) resolve in 0.001ms. <strong>Zero DB writes</strong>, meaning zero cost even with thousands of visitors.
+                <div className="rounded-xl border border-amber-300/60 bg-amber-50/70 p-3.5 text-[11.5px] text-amber-950 space-y-1.5">
+                  <strong className="block font-semibold">How it fixes incomplete uploads:</strong>
+                  <p className="text-amber-900 leading-relaxed text-[11px]">
+                    If a host uploads an outside garden/building photo by mistake (like in Ticket #TK-1082), you don't reject them.
+                    You simply reply: <em>"Please upload a paper sketch of the inside rooms with measurements."</em>
+                    The host receives the notification and uploads the sketch directly in the chat thread!
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="rounded-xl border border-line bg-paper/40 p-3 space-y-1">
+                    <span className="font-bold text-[11.5px] text-ink flex items-center gap-1.5">
+                      <Split className="h-3.5 w-3.5 text-accent" /> Side-by-Side 3D Studio
+                    </span>
+                    <p className="text-[10px] text-ink-soft leading-relaxed">
+                      Founder draws the 3D floor plan directly beside the host's sketch without switching tabs or memorizing room sizes.
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-line bg-paper/40 p-3.5 space-y-1">
-                    <div className="flex items-center gap-1.5 font-bold text-[12px] text-ink">
-                      <Database className="h-3.5 w-3.5 text-emerald-600" /> Exactly 1 DB Write
-                    </div>
-                    <p className="text-[10.5px] text-ink-soft leading-relaxed">
-                      Only when the user actually submits a blueprint sketch does it write 1 single structured row to Cloudflare D1. No chat spam.
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl border border-line bg-paper/40 p-3.5 space-y-1">
-                    <div className="flex items-center gap-1.5 font-bold text-[12px] text-ink">
-                      <Clock className="h-3.5 w-3.5 text-accent" /> 12-Hour SLA Batching
-                    </div>
-                    <p className="text-[10.5px] text-ink-soft leading-relaxed">
-                      You are not trapped at your desk. You check tickets at 10 AM and 6 PM, draft 3D models calmly in Studio, and resolve them.
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl border border-line bg-paper/40 p-3.5 space-y-1">
-                    <div className="flex items-center gap-1.5 font-bold text-[12px] text-ink">
-                      <Shield className="h-3.5 w-3.5 text-blue-600" /> Zero AI Data Leakage
-                    </div>
-                    <p className="text-[10.5px] text-ink-soft leading-relaxed">
-                      Host blueprints and personal numbers are never sent to external AI servers. 100% compliant with Indian data laws (DPDP Act).
+                  <div className="rounded-xl border border-line bg-paper/40 p-3 space-y-1">
+                    <span className="font-bold text-[11.5px] text-ink flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5 text-emerald-600" /> Ground Agent Visits
+                    </span>
+                    <p className="text-[10px] text-ink-soft leading-relaxed">
+                      If the host says "I can't draw", 1-click offer an in-person laser survey with ₹0 upfront deduction from first booking.
                     </p>
                   </div>
                 </div>
@@ -847,24 +1090,27 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
               <div className="rounded-2xl border border-accent/30 bg-accent/5 p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div>
                   <h4 className="font-semibold text-[13px] text-ink">
-                    Like how this feels in the demo?
+                    Switch to Tab 2 to test Founder Desk!
                   </h4>
                   <p className="text-[11px] text-ink-soft">
-                    When you give permission, we can replace the open live drawer with this guided bank-style engine across the main app.
+                    Experience how you inspect Ticket #TK-1082, send quick replies, and draft 3D models side-by-side.
                   </p>
                 </div>
                 <button
-                  onClick={() => alert("Ready! Just tell Antigravity in the chat: 'Permission granted, add to main app'!")}
+                  onClick={() => {
+                    trackInMemory();
+                    setDemoViewTab("founder");
+                  }}
                   className="shrink-0 rounded-xl bg-ink px-4 py-2 text-[11.5px] font-semibold text-white shadow-xs hover:bg-ink/90 transition"
                 >
-                  Give Permission to Deploy 🚀
+                  Go to Founder Desk ➔
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB 2: FOUNDER DESK VIEW (12H BATCH RESOLUTION) */}
+        {/* TAB 2: FOUNDER DESK VIEW */}
         {demoViewTab === "founder" && (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -878,19 +1124,20 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                   </span>
                 </div>
                 <p className="text-[11.5px] text-ink-soft">
-                  Review submitted sketches, draft 3D models in Studio, and mark tickets as Resolved.
+                  Review submitted sketches, chat with hosts for details, draft in Studio, and offer agent visits.
                 </p>
               </div>
               <span className="font-mono text-[11px] text-ink-faint">
-                {founderTickets.filter((t) => t.status === "open").length} open tickets needing drafting
+                {founderTickets.filter((t) => t.status !== "resolved").length} open tickets needing drafting
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-4 rounded-2xl border border-line bg-white shadow-xs overflow-hidden h-[620px]">
+            <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-4 rounded-2xl border border-line bg-white shadow-xs overflow-hidden h-[660px]">
               {/* Ticket List */}
               <div className="flex flex-col border-r border-line bg-paper/20">
-                <div className="p-3 border-b border-line bg-white text-[11px] font-semibold text-ink-soft">
-                  Incoming Tickets ({founderTickets.length})
+                <div className="p-3 border-b border-line bg-white text-[11px] font-semibold text-ink-soft flex items-center justify-between">
+                  <span>Incoming Tickets ({founderTickets.length})</span>
+                  <span className="text-[9.5px] font-mono text-ink-faint">Batch SLA: 12h</span>
                 </div>
 
                 <div className="flex-1 overflow-y-auto divide-y divide-line/60">
@@ -899,7 +1146,10 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                     return (
                       <button
                         key={t.id}
-                        onClick={() => setSelectedFounderTicket(t)}
+                        onClick={() => {
+                          trackInMemory();
+                          setSelectedFounderTicketId(t.id);
+                        }}
                         className={cn(
                           "w-full p-3.5 text-left transition flex flex-col gap-1.5 hover:bg-paper",
                           isSelected ? "bg-amber-50/80 border-l-3 border-accent" : "bg-white"
@@ -912,10 +1162,17 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                               "rounded-full px-2 py-0.2 font-mono text-[8.5px] font-bold uppercase",
                               t.status === "open"
                                 ? "bg-amber-100 text-amber-900 border border-amber-200"
+                                : t.status === "needs_interior_sketch"
+                                ? "bg-red-100 text-red-900 border border-red-200"
+                                : t.status === "agent_visit_offered"
+                                ? "bg-blue-100 text-blue-900 border border-blue-200"
                                 : "bg-emerald-100 text-emerald-900 border border-emerald-200"
                             )}
                           >
-                            {t.status === "open" ? "● Open (12h SLA)" : "✓ Resolved"}
+                            {t.status === "open" && "● Open (12h)"}
+                            {t.status === "needs_interior_sketch" && "⚠️ Needs Sketch"}
+                            {t.status === "agent_visit_offered" && "📍 Agent Offered"}
+                            {t.status === "resolved" && "✓ Resolved"}
                           </span>
                         </div>
 
@@ -924,12 +1181,12 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                         </span>
 
                         <p className="text-[10.5px] text-ink-soft line-clamp-1">
-                          {t.message}
+                          {t.messages[t.messages.length - 1]?.text || "Photo uploaded"}
                         </p>
 
                         <div className="flex items-center justify-between text-[9.5px] font-mono text-ink-faint">
                           <span>{t.hostName}</span>
-                          <span>{new Date(t.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                          <span>{t.messages.length} msgs</span>
                         </div>
                       </button>
                     );
@@ -940,11 +1197,12 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
               {/* Ticket Inspector */}
               <div className="flex flex-col h-full bg-paper/10">
                 {selectedFounderTicket ? (
-                  <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                    <div className="flex items-center justify-between border-b border-line pb-3">
+                  <div className="flex-1 flex flex-col h-full overflow-hidden">
+                    {/* Header */}
+                    <div className="border-b border-line bg-white p-4 shrink-0 flex items-center justify-between">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="font-serif text-[17px] font-bold text-ink">
+                          <h3 className="font-serif text-[16px] font-bold text-ink">
                             Ticket #{selectedFounderTicket.id}
                           </h3>
                           <span className="rounded bg-accent/15 px-2 py-0.5 font-mono text-[9px] font-bold text-accent">
@@ -952,101 +1210,139 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                           </span>
                         </div>
                         <p className="text-[11px] text-ink-soft mt-0.5">
-                          Submitted by <strong>{selectedFounderTicket.hostName}</strong> ({selectedFounderTicket.email})
+                          Property: <strong>{selectedFounderTicket.propertyTitle}</strong> · Host: {selectedFounderTicket.hostName} ({selectedFounderTicket.email})
                         </p>
                       </div>
 
-                      <span
-                        className={cn(
-                          "rounded-full px-3 py-1 font-mono text-[10px] font-bold uppercase",
-                          selectedFounderTicket.status === "open"
-                            ? "bg-amber-100 text-amber-900 border border-amber-300"
-                            : "bg-emerald-100 text-emerald-900 border border-emerald-300"
-                        )}
+                      {/* Primary Action Button: Open Side-by-Side 3D Studio */}
+                      <button
+                        onClick={handleOpenStudio}
+                        className="flex items-center gap-1.5 rounded-xl bg-ink px-3.5 py-2 text-[11px] font-semibold text-white shadow-xs hover:bg-ink/90 transition"
                       >
-                        {selectedFounderTicket.status === "open" ? "Pending Drafting" : "Resolved"}
-                      </span>
+                        <Split className="h-3.5 w-3.5 text-amber-300" />
+                        Open Side-by-Side 3D Studio
+                      </button>
                     </div>
 
-                    <div className="rounded-xl border border-line bg-white p-3.5 space-y-2">
-                      <span className="text-[10.5px] font-mono uppercase text-ink-faint">Host Property & Notes</span>
-                      <h4 className="font-bold text-[13px] text-ink">{selectedFounderTicket.propertyTitle}</h4>
-                      <p className="text-[11.5px] text-ink-soft leading-relaxed whitespace-pre-wrap">
-                        {selectedFounderTicket.message}
-                      </p>
+                    {/* Chat Conversation & Upload Inspection Area */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {/* Host Upload Inspection Card */}
+                      {selectedFounderTicket.sketchUrl && (
+                        <div className="rounded-xl border border-line bg-white p-3.5 shadow-2xs space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-ink flex items-center gap-1.5">
+                              <ImageIcon className="h-4 w-4 text-accent" /> Host Uploaded Attachment
+                            </span>
+                            <span className="text-[9.5px] font-mono text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                              Exterior villa photo detected
+                            </span>
+                          </div>
+
+                          <div className="overflow-hidden rounded-lg border border-line bg-black/5 p-1">
+                            <img
+                              src={selectedFounderTicket.sketchUrl}
+                              alt="Host upload"
+                              className="max-h-52 w-full object-cover rounded"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Two-Way Chat Bubbles */}
+                      <div className="space-y-2.5">
+                        {selectedFounderTicket.messages.map((m) => {
+                          const isFounder = m.sender === "founder";
+                          return (
+                            <div
+                              key={m.id}
+                              className={cn(
+                                "flex flex-col max-w-[85%]",
+                                isFounder ? "ml-auto items-end" : "mr-auto items-start"
+                              )}
+                            >
+                              <span className="text-[9.5px] font-mono text-ink-faint mb-0.5">
+                                {isFounder ? "👑 Founder Hemanth" : selectedFounderTicket.hostName} · {m.timestamp}
+                              </span>
+                              <div
+                                className={cn(
+                                  "rounded-2xl px-3.5 py-2 text-[11.5px] leading-relaxed shadow-2xs",
+                                  isFounder
+                                    ? "rounded-tr-xs bg-ink text-white"
+                                    : "rounded-tl-xs border border-line bg-white text-ink"
+                                )}
+                              >
+                                <p className="whitespace-pre-wrap">{m.text}</p>
+                                {m.attachmentUrl && m.attachmentUrl !== selectedFounderTicket.sketchUrl && (
+                                  <img
+                                    src={m.attachmentUrl}
+                                    alt="Sketch"
+                                    className="mt-2 max-h-40 rounded object-cover"
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
 
-                    {/* Attached Blueprint Sketch */}
-                    {selectedFounderTicket.sketchUrl && (
-                      <div className="rounded-xl border border-line bg-white p-3.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-ink flex items-center gap-1.5">
-                            <ImageIcon className="h-4 w-4 text-accent" /> Hand-Drawn Blueprint Sketch
-                          </span>
-                          <a
-                            href={selectedFounderTicket.sketchUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[10.5px] font-medium text-accent hover:underline flex items-center gap-1"
-                          >
-                            Open Full-Res <ExternalLink className="h-3 w-3" />
-                          </a>
-                        </div>
-                        <div className="overflow-hidden rounded-lg border border-line bg-black/5 p-1">
-                          <img
-                            src={selectedFounderTicket.sketchUrl}
-                            alt="Blueprint Sketch"
-                            className="max-h-64 rounded w-full object-contain"
-                          />
-                        </div>
-                      </div>
-                    )}
+                    {/* Quick Response Action Chips for Founder */}
+                    <div className="border-t border-line bg-paper/60 px-4 py-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleRequestInteriorSketch}
+                        className="flex items-center gap-1 rounded-lg border border-line bg-white px-2.5 py-1 text-[10.5px] font-medium text-ink hover:border-ink/40 transition shadow-2xs"
+                      >
+                        📸 Request Interior Room Sketch
+                      </button>
 
-                    {/* Resolution Section */}
-                    {selectedFounderTicket.status === "open" ? (
-                      <div className="rounded-xl border border-line bg-white p-4 space-y-3">
-                        <span className="font-bold text-[12px] text-ink">Resolve Ticket:</span>
-                        <input
-                          type="text"
-                          value={resolvingNote}
-                          onChange={(e) => setResolvingNote(e.target.value)}
-                          placeholder="e.g. 3D Plan drafted in Studio. Verified 2 BHK layout."
-                          className="h-9 w-full rounded-lg border border-line bg-paper px-3 text-[11.5px] text-ink outline-none"
-                        />
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleResolveTicket(selectedFounderTicket.id)}
-                            className="flex items-center gap-1.5 rounded-lg bg-ink px-4 py-2 text-[11.5px] font-semibold text-white shadow-xs hover:bg-ink/90 transition"
-                          >
-                            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                            Mark Resolved & Notify Host
-                          </button>
-                          <button
-                            onClick={onExit}
-                            className="flex items-center gap-1 rounded-lg border border-line bg-paper px-3 py-2 text-[11px] font-medium text-ink hover:bg-paper-deep"
-                          >
-                            Open 2D/3D Studio
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-xl border border-emerald-300 bg-emerald-50/70 p-4 text-[11.5px] text-emerald-950 space-y-1">
-                        <strong className="flex items-center gap-1.5 text-emerald-900">
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600" /> Resolved by Founder
-                        </strong>
-                        <p>{selectedFounderTicket.resolutionNote}</p>
-                        <span className="block font-mono text-[10px] text-emerald-800/80">
-                          Resolved at: {selectedFounderTicket.resolvedAt ? new Date(selectedFounderTicket.resolvedAt).toLocaleTimeString() : "Earlier today"}
-                        </span>
-                      </div>
-                    )}
+                      <button
+                        type="button"
+                        onClick={handleOfferAgentVisit}
+                        className="flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[10.5px] font-semibold text-emerald-900 hover:bg-emerald-100 transition shadow-2xs"
+                      >
+                        📍 Offer Ground Agent In-Person Visit
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleOpenStudio}
+                        className="flex items-center gap-1 rounded-lg border border-amber-400 bg-amber-50 px-2.5 py-1 text-[10.5px] font-semibold text-amber-950 hover:bg-amber-100 transition shadow-2xs"
+                      >
+                        ✏️ Draft 3D Plan in Studio
+                      </button>
+                    </div>
+
+                    {/* Reply Input */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSendFounderReply();
+                      }}
+                      className="border-t border-line bg-white p-3 flex items-center gap-2"
+                    >
+                      <input
+                        type="text"
+                        value={founderReplyInput}
+                        onChange={(e) => setFounderReplyInput(e.target.value)}
+                        placeholder="Reply to host or ask for clarifications…"
+                        className="h-10 flex-1 rounded-xl border border-line bg-paper px-3 text-[12px] text-ink outline-none focus:border-ink"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!founderReplyInput.trim()}
+                        className="flex h-10 items-center gap-1.5 rounded-xl bg-ink px-4 text-[11.5px] font-semibold text-white disabled:opacity-40"
+                      >
+                        <Send className="h-3.5 w-3.5" /> Reply
+                      </button>
+                    </form>
                   </div>
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center p-8 text-center text-ink-faint">
                     <Layers className="h-10 w-10 text-ink-faint/60 mb-2" />
                     <h4 className="font-serif text-[15px] font-bold text-ink">Select a ticket</h4>
                     <p className="mt-1 text-[11px] text-ink-soft max-w-xs">
-                      Choose an incoming ticket from the left to inspect paper sketches and resolve drafting requests.
+                      Choose an incoming ticket from the left to inspect paper sketches, chat with hosts, or draft in Studio.
                     </p>
                   </div>
                 )}
@@ -1055,6 +1351,191 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
           </div>
         )}
       </main>
+
+      {/* FULL-SCREEN SIDE-BY-SIDE 3D DRAFTING STUDIO MODAL */}
+      {draftingStudioModalOpen && selectedFounderTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-3 sm:p-6 backdrop-blur-sm animate-fade">
+          <div className="flex h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-2xl animate-pop">
+            {/* Modal Header */}
+            <div className="flex shrink-0 items-center justify-between border-b border-line bg-ink px-5 py-3.5 text-white">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/20 text-accent">
+                  <Split className="h-4.5 w-4.5" />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-serif text-[16px] font-bold text-amber-200">
+                      Side-by-Side 3D Floor Plan Studio
+                    </h3>
+                    <span className="rounded bg-white/15 px-2 py-0.5 font-mono text-[9px] text-white">
+                      Ticket #{selectedFounderTicket.id}
+                    </span>
+                  </div>
+                  <p className="text-[10.5px] text-white/70">
+                    Drafting for listing: <strong>{selectedFounderTicket.propertyTitle}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveDrafted3DPlan}
+                  className="flex items-center gap-1.5 rounded-xl bg-accent px-4 py-2 text-[11.5px] font-bold text-white shadow-sm hover:bg-accent/90 transition"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Save 3D Plan to Listing & Resolve Ticket
+                </button>
+
+                <button
+                  onClick={() => setDraftingStudioModalOpen(false)}
+                  className="rounded-lg p-1.5 text-white/70 hover:bg-white/10 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Split Screen Columns */}
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-line overflow-hidden">
+              {/* LEFT 50%: HOST'S UPLOADED BLUEPRINT / PHOTO */}
+              <div className="flex flex-col bg-paper/40 p-4 overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-line pb-2 mb-3">
+                  <span className="font-bold text-[12px] text-ink flex items-center gap-1.5">
+                    <ImageIcon className="h-4 w-4 text-accent" /> Host's Uploaded Reference
+                  </span>
+                  <span className="text-[10px] text-ink-faint font-mono">Reference Image</span>
+                </div>
+
+                <div className="flex-1 flex items-center justify-center rounded-xl border border-line bg-white p-2 overflow-hidden shadow-2xs">
+                  {selectedFounderTicket.sketchUrl ? (
+                    <img
+                      src={selectedFounderTicket.sketchUrl}
+                      alt="Host sketch"
+                      className="max-h-[60vh] w-full object-contain rounded"
+                    />
+                  ) : (
+                    <div className="text-center text-ink-faint p-8">No image attached</div>
+                  )}
+                </div>
+
+                <div className="mt-3 rounded-xl border border-line bg-white p-3 text-[11px] text-ink-soft">
+                  <strong className="text-ink">Host Dimensions & Notes:</strong>
+                  <p className="mt-0.5 leading-snug">{selectedFounderTicket.messages[0]?.text}</p>
+                </div>
+              </div>
+
+              {/* RIGHT 50%: STAYNTH 2D/3D FLOOR PLAN DRAFTING CANVAS */}
+              <div className="flex flex-col bg-white p-4 overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-line pb-2 mb-3">
+                  <span className="font-bold text-[12px] text-ink flex items-center gap-1.5">
+                    <PencilRuler className="h-4 w-4 text-accent" /> StayNth Architectural Drafting Canvas
+                  </span>
+                  <span className="font-mono text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-bold">
+                    {Math.round(studioSummary.area)} SQ FT NET
+                  </span>
+                </div>
+
+                {/* Drafting Controls */}
+                <div className="rounded-xl border border-line bg-paper/50 p-3 mb-3 space-y-2.5">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="block text-[10px] font-mono uppercase text-ink-faint mb-1">
+                        Layout Footprint
+                      </span>
+                      <div className="grid grid-cols-4 gap-1">
+                        {([1, 2, 3, 4] as const).map((beds) => (
+                          <button
+                            key={beds}
+                            type="button"
+                            onClick={() => {
+                              const preset = FOOTPRINT_PRESETS[beds];
+                              setStudioDraftOpts((o) => ({
+                                ...o,
+                                bedrooms: beds,
+                                width: preset.width,
+                                depth: preset.depth,
+                                bathrooms: beds === 1 ? 1 : 2,
+                              }));
+                            }}
+                            className={cn(
+                              "rounded-lg py-1 text-[11px] font-medium transition",
+                              studioDraftOpts.bedrooms === beds
+                                ? "bg-ink text-white"
+                                : "bg-white border border-line text-ink hover:bg-paper"
+                            )}
+                          >
+                            {beds === 1 ? "Studio" : `${beds} BHK`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="block text-[10px] font-mono uppercase text-ink-faint mb-1">
+                        Bathrooms
+                      </span>
+                      <div className="grid grid-cols-2 gap-1">
+                        {([1, 2] as const).map((baths) => (
+                          <button
+                            key={baths}
+                            type="button"
+                            onClick={() => setStudioDraftOpts((o) => ({ ...o, bathrooms: baths }))}
+                            className={cn(
+                              "rounded-lg py-1 text-[11px] font-medium transition",
+                              studioDraftOpts.bathrooms === baths
+                                ? "bg-ink text-white"
+                                : "bg-white border border-line text-ink hover:bg-paper"
+                            )}
+                          >
+                            {baths} Bath
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <label className="flex items-center justify-between text-[10.5px] text-ink-soft">
+                      <span>Width: <strong>{studioDraftOpts.width} ft</strong></span>
+                      <input
+                        type="range"
+                        min={22}
+                        max={60}
+                        value={studioDraftOpts.width}
+                        onChange={(e) => setStudioDraftOpts((o) => ({ ...o, width: Number(e.target.value) }))}
+                        className="w-24 accent-ink"
+                      />
+                    </label>
+
+                    <label className="flex items-center justify-between text-[10.5px] text-ink-soft">
+                      <span>Depth: <strong>{studioDraftOpts.depth} ft</strong></span>
+                      <input
+                        type="range"
+                        min={18}
+                        max={50}
+                        value={studioDraftOpts.depth}
+                        onChange={(e) => setStudioDraftOpts((o) => ({ ...o, depth: Number(e.target.value) }))}
+                        className="w-24 accent-ink"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Real-time SVG Blueprint Preview Canvas */}
+                <div className="flex-1 rounded-xl border border-line bg-paper/20 p-2 overflow-hidden flex items-center justify-center min-h-[300px]">
+                  <MiniPlan plan={currentStudioPlan} />
+                </div>
+
+                <div className="mt-3 flex items-center justify-between text-[11px] font-mono text-ink-faint">
+                  <span>{studioSummary.bedrooms} BED · {studioSummary.bathrooms} BATH</span>
+                  <span>{currentStudioPlan.rooms.length} ROOMS · {currentStudioPlan.walls?.length || 18} WALLS</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
