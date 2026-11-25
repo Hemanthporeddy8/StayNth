@@ -7,8 +7,9 @@ on:
       - 'android/**'
       - '.github/workflows/build-android.yml'
   workflow_dispatch:
-  release:
-    types: [ published ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,13 +27,14 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Setup Gradle 8.5
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.5'
+
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
       - name: Build Android Debug APK
         working-directory: ./android
@@ -46,9 +48,11 @@ jobs:
         run: |
           mkdir -p dist-android
           # Copy Debug APK (can be installed on any phone with 1 tap)
-          find android/app/build/outputs/apk/debug -name "*.apk" -exec cp {} dist-android/StayNth-debug.apk \;
+          find android/app/build/outputs/apk/debug -name "*.apk" -exec cp {} dist-android/StayNth.apk \;
+          cp dist-android/StayNth.apk dist-android/StayNth-debug.apk
           # Copy Release AAB (for Google Play Console)
-          find android/app/build/outputs/bundle/release -name "*.aab" -exec cp {} dist-android/StayNth-release.aab \;
+          find android/app/build/outputs/bundle/release -name "*.aab" -exec cp {} dist-android/StayNth.aab \;
+          cp dist-android/StayNth.aab dist-android/StayNth-release.aab
           echo "Build completed successfully. Artifacts:"
           ls -la dist-android/
 
@@ -59,12 +63,13 @@ jobs:
           path: dist-android/
           retention-days: 30
 
-      - name: Attach APK & AAB to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+      - name: Publish to GitHub Release v1.0.0
+        uses: ncipollo/release-action@v1
         with:
-          files: |
-            dist-android/StayNth-debug.apk
-            dist-android/StayNth-release.aab
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: "v1.0.0"
+          name: "StayNth Android v1.0.0"
+          body: "Official StayNth Android packages. Includes standalone installable APK (`StayNth.apk`) and Google Play Store AAB bundle (`StayNth.aab`)."
+          artifacts: "dist-android/StayNth.apk,dist-android/StayNth.aab,dist-android/StayNth-debug.apk,dist-android/StayNth-release.aab"
+          allowUpdates: true
+          makeLatest: true
+          token: ${{ secrets.GITHUB_TOKEN }}

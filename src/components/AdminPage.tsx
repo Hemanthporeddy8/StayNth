@@ -29,6 +29,7 @@ import {
   Search,
   ExternalLink,
   Send,
+  Download,
 } from "lucide-react";
 import {
   loadReplicaOrders,
@@ -102,7 +103,7 @@ export function AdminPage({
   const [totpError, setTotpError] = useState(false);
 
   // Admin Console Active Tab
-  const [activeTab, setActiveTab] = useState<"drafting" | "flags" | "bookings" | "team" | "expeditions" | "support">("drafting");
+  const [activeTab, setActiveTab] = useState<"drafting" | "flags" | "bookings" | "team" | "expeditions" | "support" | "android">("drafting");
   const [orders, setOrders] = useState<ReplicaOrder[]>(loadReplicaOrders);
   const [requests] = useState<PropertyRequest[]>(loadRequests);
   const [listings] = useState<PropertyListing[]>(loadListings);
@@ -867,6 +868,18 @@ export function AdminPage({
                     {totalUnreadSupport}
                   </span>
                 )}
+              </button>
+
+              <button
+                onClick={() => setActiveTab("android")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-medium transition",
+                  activeTab === "android"
+                    ? "bg-ink text-white"
+                    : "text-ink-soft hover:bg-paper hover:text-ink"
+                )}
+              >
+                <Smartphone className="h-3.5 w-3.5 text-accent" /> Android & Play Store
               </button>
             </div>
 
@@ -1758,6 +1771,139 @@ export function AdminPage({
                       </div>
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: ANDROID MOBILE PACKAGES & PLAY STORE AAB */}
+            {activeTab === "android" && (
+              <div className="space-y-6 max-w-4xl">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-serif text-[20px] font-bold text-ink">
+                      Android Native App & Google Play Store Packages
+                    </h2>
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-mono text-[9.5px] font-bold text-emerald-900 border border-emerald-200">
+                      SDK 34 (Android 14)
+                    </span>
+                  </div>
+                  <p className="text-[11.5px] text-ink-soft">
+                    Download the official Google Play Console bundle (.aab) or standalone installable APK (.apk) compiled by GitHub Actions.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Card 1: Google Play Store Bundle (.aab) */}
+                  <div className="rounded-2xl border-2 border-accent/40 bg-white p-5 shadow-xs space-y-4 relative overflow-hidden">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent font-bold text-[18px]">
+                          📦
+                        </span>
+                        <div>
+                          <h3 className="font-serif text-[16px] font-bold text-ink">Google Play Store Bundle</h3>
+                          <span className="font-mono text-[10px] text-accent font-semibold">StayNth.aab (Release Bundle)</span>
+                        </div>
+                      </div>
+                      <span className="rounded bg-accent/10 px-2 py-0.5 font-mono text-[9px] font-bold text-accent">
+                        Play Store Official
+                      </span>
+                    </div>
+
+                    <p className="text-[11.5px] text-ink-soft leading-relaxed">
+                      Official Android App Bundle format required by the Google Play Developer Console. Optimized dynamically by Google for every Android device.
+                    </p>
+
+                    <div className="rounded-xl border border-line bg-paper/60 p-3 text-[11px] font-mono space-y-1 text-ink-soft">
+                      <div className="flex justify-between">
+                        <span>Package ID:</span>
+                        <strong className="text-ink">in.staynth.app</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Version Name:</span>
+                        <strong className="text-ink">1.0.0</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Version Code:</span>
+                        <strong className="text-ink">1</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Target SDK:</span>
+                        <strong className="text-ink">34 (Android 14)</strong>
+                      </div>
+                    </div>
+
+                    <a
+                      href="https://github.com/Hemanthporeddy8/StayNth/releases/download/v1.0.0/StayNth.aab"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-[12px] font-bold text-white shadow-sm hover:bg-accent/90 transition w-full"
+                    >
+                      <Download className="h-4 w-4" /> Download StayNth.aab (Play Store)
+                    </a>
+                  </div>
+
+                  {/* Card 2: Standalone APK (.apk) */}
+                  <div className="rounded-2xl border border-line bg-white p-5 shadow-xs space-y-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink/10 text-ink font-bold text-[18px]">
+                          📱
+                        </span>
+                        <div>
+                          <h3 className="font-serif text-[16px] font-bold text-ink">Installable Android Package</h3>
+                          <span className="font-mono text-[10px] text-ink-soft font-semibold">StayNth.apk (Direct Sideload)</span>
+                        </div>
+                      </div>
+                      <span className="rounded bg-paper-deep px-2 py-0.5 font-mono text-[9px] font-bold text-ink-soft">
+                        Direct Phone Install
+                      </span>
+                    </div>
+
+                    <p className="text-[11.5px] text-ink-soft leading-relaxed">
+                      Ready to install immediately on any Android phone without publishing to Google Play Store. Great for internal founder tests and early hosts.
+                    </p>
+
+                    <div className="rounded-xl border border-line bg-paper/60 p-3 text-[11px] font-mono space-y-1 text-ink-soft">
+                      <div className="flex justify-between">
+                        <span>Build Type:</span>
+                        <strong className="text-ink">Standalone APK</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Architecture:</span>
+                        <strong className="text-ink">Universal (All Arm64 & x86)</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Min Android Version:</span>
+                        <strong className="text-ink">7.0+ (Nougat to 14)</strong>
+                      </div>
+                    </div>
+
+                    <a
+                      href="https://github.com/Hemanthporeddy8/StayNth/releases/download/v1.0.0/StayNth.apk"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 rounded-xl bg-ink py-2.5 text-[12px] font-semibold text-white shadow-sm hover:bg-ink/90 transition w-full"
+                    >
+                      <Download className="h-4 w-4" /> Download StayNth.apk (Install on Phone)
+                    </a>
+                  </div>
+                </div>
+
+                {/* Google Play Console Upload Guide */}
+                <div className="rounded-2xl border border-line bg-paper/40 p-5 space-y-2 text-[12px]">
+                  <h4 className="font-semibold text-ink flex items-center gap-1.5">
+                    🚀 How to upload StayNth.aab to Google Play Console:
+                  </h4>
+                  <ol className="list-decimal list-inside space-y-1 text-ink-soft text-[11.5px] leading-relaxed">
+                    <li>Download the <strong>StayNth.aab</strong> bundle using the button above.</li>
+                    <li>Go to your <a href="https://play.google.com/console" target="_blank" rel="noreferrer" className="text-accent underline">Google Play Developer Console</a>.</li>
+                    <li>Select your app (or click <em>Create app</em> with name <strong>StayNth</strong>).</li>
+                    <li>Under <em>Release</em> ➔ <em>Production</em> (or <em>Internal Testing</em>), click <strong>Create new release</strong>.</li>
+                    <li>Upload <strong>StayNth.aab</strong> into the App bundles section.</li>
+                    <li>Add release notes: <em>"StayNth initial launch — 2D/3D floor plan generator and homestay marketplace."</em></li>
+                    <li>Review and rollout to Google Play Store!</li>
+                  </ol>
                 </div>
               </div>
             )}

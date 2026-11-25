@@ -29,6 +29,7 @@ import {
   Sparkles,
   Compass,
   Phone,
+  Smartphone,
 } from "lucide-react";
 import type { Plan } from "@/types";
 import { ListPropertyDialog } from "@/components/ListPropertyDialog";
@@ -378,6 +379,18 @@ export function PropertiesApp({
               <LogIn className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Sign In</span>
             </button>
           )}
+
+          {/* Direct Android APK download */}
+          <a
+            href="https://github.com/Hemanthporeddy8/StayNth/releases/download/v1.0.0/StayNth.apk"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-2.5 py-2 text-[11px] font-medium text-ink hover:bg-paper-deep transition shadow-sm"
+            title="Download StayNth Android App (.apk)"
+          >
+            <Smartphone className="h-3.5 w-3.5 text-accent" />
+            <span className="hidden sm:inline">Install App</span>
+          </a>
 
           <button onClick={openList} className="flex items-center gap-1.5 rounded-lg bg-ink px-3 py-2 text-[11px] font-medium text-white shadow-sm hover:bg-ink/90">
             <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">List property</span><span className="sm:hidden">List</span>
