@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Info, MousePointer2, Sparkles, X } from "lucide-react";
+import { Check, Info, MousePointer2, Sparkles, X, Maximize2, Minimize2, PencilRuler } from "lucide-react";
 import type {
   DisplaySettings,
   FurnitureType,
@@ -225,6 +225,76 @@ export default function App() {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2800);
   }, []);
+
+  // Active Ticket Drafting state (when redirected from Founder Desk to Studio)
+  const [ticketDraftContext, setTicketDraftContext] = useState<{
+    ticketId: string;
+    propertyTitle: string;
+    sketchUrl?: string | null;
+    hostName?: string;
+    returnUrl?: string;
+  } | null>(() => {
+    try {
+      const raw = localStorage.getItem("staynth_active_ticket_draft");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [pipExpanded, setPipExpanded] = useState(false);
+  const [pipZoomModal, setPipZoomModal] = useState(false);
+
+  // Sync ticket draft context whenever section changes to studio
+  useEffect(() => {
+    if (section === "studio") {
+      try {
+        const raw = localStorage.getItem("staynth_active_ticket_draft");
+        if (raw) setTicketDraftContext(JSON.parse(raw));
+      } catch {
+        // ignore
+      }
+    }
+  }, [section]);
+
+  const handleResolveDraftTicket = useCallback(() => {
+    if (!ticketDraftContext) return;
+    const ticketId = ticketDraftContext.ticketId;
+    const returnUrl = ticketDraftContext.returnUrl || "#admin";
+
+    // Broadcast resolution event and clear draft
+    window.dispatchEvent(
+      new CustomEvent("staynth:ticket-resolved", {
+        detail: { ticketId, plan: planRef.current },
+      })
+    );
+    try {
+      const raw = localStorage.getItem("staynth_resolved_tickets");
+      const map = raw ? JSON.parse(raw) : {};
+      map[ticketId] = {
+        resolvedAt: new Date().toISOString(),
+        plan: planRef.current,
+      };
+      localStorage.setItem("staynth_resolved_tickets", JSON.stringify(map));
+    } catch {
+      // ignore
+    }
+    localStorage.removeItem("staynth_active_ticket_draft");
+    setTicketDraftContext(null);
+    showToast(`✓ Plan attached & Ticket #${ticketId} marked as Resolved!`);
+
+    setTimeout(() => {
+      window.location.hash = returnUrl;
+    }, 400);
+  }, [ticketDraftContext, showToast]);
+
+  const handleCancelDraftTicket = useCallback(() => {
+    if (!ticketDraftContext) return;
+    const returnUrl = ticketDraftContext.returnUrl || "#admin";
+    localStorage.removeItem("staynth_active_ticket_draft");
+    setTicketDraftContext(null);
+    window.location.hash = returnUrl;
+  }, [ticketDraftContext]);
 
   const commit = useCallback((next: Plan) => {
     setHistory((h) => ({ past: [...h.past.slice(-49), planRef.current], future: [] }));
@@ -536,6 +606,10 @@ export default function App() {
           window.history.replaceState(null, "", "/");
           setSection("properties");
         }}
+        onOpenStudio={() => {
+          window.history.replaceState(null, "", "/");
+          setSection("studio");
+        }}
       />
     );
   }
@@ -546,6 +620,10 @@ export default function App() {
         onExit={() => {
           window.history.replaceState(null, "", "/#properties");
           setSection("properties");
+        }}
+        onOpenStudio={() => {
+          window.history.replaceState(null, "", "/");
+          setSection("studio");
         }}
       />
     );
@@ -624,6 +702,39 @@ export default function App() {
             </button>
             <button onClick={finishListingPlan} className="flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[11px] font-medium text-white hover:bg-ink/90">
               <Check className="h-3.5 w-3.5" /> Done — back to listing
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Founder Drafting for Support Ticket Banner */}
+      {ticketDraftContext && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-amber-300 bg-amber-50 px-4 py-2 text-[11.5px] text-amber-950 shadow-xs z-30">
+          <div className="flex items-center gap-2 truncate">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-200 text-accent font-bold text-[12px]">
+              📐
+            </span>
+            <span className="truncate">
+              Drafting in Studio for Ticket <strong>#{ticketDraftContext.ticketId}</strong>:{" "}
+              <strong>{ticketDraftContext.propertyTitle}</strong>{" "}
+              {ticketDraftContext.hostName && (
+                <span className="text-amber-800 font-normal">(Host: {ticketDraftContext.hostName})</span>
+              )}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleResolveDraftTicket}
+              className="flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1 font-semibold text-white shadow-2xs hover:bg-ink/90 transition text-[11px]"
+            >
+              <Check className="h-3.5 w-3.5 text-emerald-400" /> Done: Attach Plan to Ticket #{ticketDraftContext.ticketId}
+            </button>
+            <button
+              onClick={handleCancelDraftTicket}
+              className="rounded-lg border border-line bg-white px-2.5 py-1 text-ink-soft hover:bg-paper hover:text-ink text-[11px]"
+            >
+              Cancel / Return
             </button>
           </div>
         </div>
@@ -821,6 +932,70 @@ export default function App() {
 
       {/* StayNth Concierge & Architect Support Desk */}
       <SupportChatDrawer />
+
+      {/* Floating Picture-in-Picture Reference Dock for Ticket Drafting */}
+      {ticketDraftContext?.sketchUrl && (
+        <div
+          className={cn(
+            "fixed z-40 border border-line bg-white/95 backdrop-blur-md shadow-2xl transition-all",
+            pipExpanded
+              ? "bottom-12 left-4 sm:left-14 w-80 sm:w-96 rounded-2xl p-3"
+              : "bottom-12 left-4 sm:left-14 w-44 rounded-xl p-2"
+          )}
+        >
+          <div className="flex items-center justify-between border-b border-line pb-1 mb-1.5">
+            <span className="text-[10px] font-bold text-ink truncate flex items-center gap-1">
+              📷 Host Reference Sketch
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPipExpanded(!pipExpanded)}
+                className="text-ink-soft hover:text-ink p-0.5"
+                title={pipExpanded ? "Minimize" : "Expand"}
+              >
+                {pipExpanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+              </button>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-lg bg-black/5">
+            <img
+              src={ticketDraftContext.sketchUrl}
+              alt="Host reference sketch"
+              className={cn(
+                "w-full object-contain cursor-zoom-in transition-all",
+                pipExpanded ? "max-h-60" : "max-h-24"
+              )}
+              onClick={() => setPipZoomModal(true)}
+            />
+          </div>
+          <span className="block mt-1 text-[8.5px] text-ink-faint text-center">
+            Click photo to zoom full-screen
+          </span>
+        </div>
+      )}
+
+      {/* Full-Screen Zoom Modal for PiP Sketch */}
+      {pipZoomModal && ticketDraftContext?.sketchUrl && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade">
+          <div className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl bg-white p-3 shadow-2xl">
+            <button
+              onClick={() => setPipZoomModal(false)}
+              className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black transition"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="mb-2 text-[12px] font-bold text-ink pr-10">
+              Host Reference Sketch · Ticket #{ticketDraftContext.ticketId}
+            </div>
+            <img
+              src={ticketDraftContext.sketchUrl}
+              alt="Zoomed Reference Sketch"
+              className="max-h-[80vh] max-w-full rounded-xl object-contain"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

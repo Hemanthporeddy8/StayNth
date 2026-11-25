@@ -82,8 +82,10 @@ interface TeamMember {
 
 export function AdminPage({
   onExit,
+  onOpenStudio,
 }: {
   onExit: () => void;
+  onOpenStudio?: () => void;
 }) {
   // Session & Auth state
   const [authStep, setAuthStep] = useState<"login" | "totp" | "authenticated">("login");
@@ -1621,12 +1623,27 @@ export function AdminPage({
                           {selectedThread?.propertyTitle && (
                             <button
                               onClick={() => {
-                                onExit();
+                                localStorage.setItem(
+                                  "staynth_active_ticket_draft",
+                                  JSON.stringify({
+                                    ticketId: selectedThread.threadId,
+                                    propertyTitle: selectedThread.propertyTitle,
+                                    sketchUrl: threadMessages.find((m) => m.attachmentUrl)?.attachmentUrl || null,
+                                    hostName: selectedThread.lastSender,
+                                    returnUrl: "#admin",
+                                  })
+                                );
+                                if (onOpenStudio) {
+                                  onOpenStudio();
+                                } else {
+                                  window.history.replaceState(null, "", "/");
+                                  window.location.hash = "";
+                                }
                               }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-line bg-paper px-2.5 py-1 text-[10.5px] font-medium text-ink hover:bg-paper-deep"
-                              title="Go to Studio to draft plan"
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[10.5px] font-semibold text-amber-950 hover:bg-amber-100 shadow-2xs transition"
+                              title="Open Real Studio to draft 3D plan with PiP reference sketch"
                             >
-                              <ExternalLink className="h-3 w-3" /> Go to Studio
+                              <ExternalLink className="h-3 w-3 text-accent" /> Draft in Real Studio
                             </button>
                           )}
                         </div>

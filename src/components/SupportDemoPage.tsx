@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -218,7 +218,13 @@ export interface TicketRecord {
   draftedPlan?: Plan;
 }
 
-export function SupportDemoPage({ onExit }: { onExit: () => void }) {
+export function SupportDemoPage({
+  onExit,
+  onOpenStudio,
+}: {
+  onExit: () => void;
+  onOpenStudio?: () => void;
+}) {
   // Navigation / screen state
   const [activeScreen, setActiveScreen] = useState<"menu" | "faq" | "ticket_form" | "ticket_chat">("menu");
   const [selectedFaq, setSelectedFaq] = useState<FAQItem | null>(null);
@@ -264,6 +270,70 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
       ],
     },
   ]);
+
+  // Sync tickets resolved in Real Studio (via localStorage or custom event)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("staynth_resolved_tickets");
+      if (raw) {
+        const resolvedMap: Record<string, { resolvedAt: string; plan?: Plan }> = JSON.parse(raw);
+        setFounderTickets((prev) =>
+          prev.map((t) => {
+            const r = resolvedMap[t.id];
+            if (r && t.status !== "resolved") {
+              const resolveMsg: TicketMessage = {
+                id: "f_resolve_" + Date.now(),
+                sender: "founder",
+                text: "🎉 Great news! Founder Hemanth & StayNth Architects have drafted your interactive 3D Floor Plan in Studio. It is now verified and active on your listing!",
+                timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              };
+              return {
+                ...t,
+                status: "resolved",
+                resolvedAt: r.resolvedAt,
+                resolutionNote: "Drafted 1:1 scale model in Real 3D Studio with walk mode.",
+                draftedPlan: r.plan,
+                messages: [...t.messages, resolveMsg],
+              };
+            }
+            return t;
+          })
+        );
+      }
+    } catch {
+      // ignore
+    }
+
+    const onResolvedEvent = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.ticketId) return;
+      const { ticketId, plan } = detail;
+      setFounderTickets((prev) =>
+        prev.map((t) => {
+          if (t.id === ticketId) {
+            const resolveMsg: TicketMessage = {
+              id: "f_resolve_" + Date.now(),
+              sender: "founder",
+              text: "🎉 Great news! Founder Hemanth & StayNth Architects have drafted your interactive 3D Floor Plan in Studio. It is now verified and active on your listing!",
+              timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            };
+            return {
+              ...t,
+              status: "resolved",
+              resolvedAt: new Date().toISOString(),
+              resolutionNote: "Drafted 1:1 scale model in Real 3D Studio with walk mode.",
+              draftedPlan: plan,
+              messages: [...t.messages, resolveMsg],
+            };
+          }
+          return t;
+        })
+      );
+    };
+
+    window.addEventListener("staynth:ticket-resolved", onResolvedEvent);
+    return () => window.removeEventListener("staynth:ticket-resolved", onResolvedEvent);
+  }, []);
 
   const [selectedFounderTicketId, setSelectedFounderTicketId] = useState<string>("TK-1082");
   const [founderReplyInput, setFounderReplyInput] = useState("");
@@ -464,10 +534,29 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
     );
   };
 
-  // Quick Action 3: Open Side-by-Side 3D Studio
+  // Quick Action 3: Redirect directly to Real Existing 3D Studio
   const handleOpenStudio = () => {
+    if (!selectedFounderTicket) return;
     trackInMemory();
-    setDraftingStudioModalOpen(true);
+
+    // Store active ticket draft context in localStorage with returnUrl back to #demo
+    localStorage.setItem(
+      "staynth_active_ticket_draft",
+      JSON.stringify({
+        ticketId: selectedFounderTicket.id,
+        propertyTitle: selectedFounderTicket.propertyTitle,
+        sketchUrl: selectedFounderTicket.sketchUrl,
+        hostName: selectedFounderTicket.hostName,
+        returnUrl: "#demo",
+      })
+    );
+
+    if (onOpenStudio) {
+      onOpenStudio();
+    } else {
+      window.history.replaceState(null, "", "/");
+      window.location.hash = "";
+    }
   };
 
   // Finish 3D Drafting in Studio & Resolve Ticket
@@ -945,6 +1034,24 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                       </p>
                     </div>
 
+                    {/* Customer 3D Model Ready Card */}
+                    {activeCustomerTicket.draftedPlan && (
+                      <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 shadow-2xs space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11.5px] font-bold text-emerald-950 flex items-center gap-1.5">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            Your 3D Floor Plan is Ready!
+                          </span>
+                          <span className="rounded-full bg-emerald-200/80 px-2 py-0.5 font-mono text-[9px] font-bold text-emerald-900">
+                            Live on Listing
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-emerald-800 leading-snug">
+                          Founder Hemanth & StayNth Architects drafted your interactive 3D model. Guests can now take a 3D virtual tour of your homestay!
+                        </p>
+                      </div>
+                    )}
+
                     {/* Chat Bubble Stream */}
                     <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
                       {activeCustomerTicket.messages.map((m) => {
@@ -1214,13 +1321,14 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                         </p>
                       </div>
 
-                      {/* Primary Action Button: Open Side-by-Side 3D Studio */}
+                      {/* Primary Action Button: Open Real 3D Studio */}
                       <button
                         onClick={handleOpenStudio}
                         className="flex items-center gap-1.5 rounded-xl bg-ink px-3.5 py-2 text-[11px] font-semibold text-white shadow-xs hover:bg-ink/90 transition"
+                        title="Redirects to real existing Studio with host sketch docked in Picture-in-Picture"
                       >
                         <Split className="h-3.5 w-3.5 text-amber-300" />
-                        Open Side-by-Side 3D Studio
+                        Draft in Real Studio (Redirect)
                       </button>
                     </div>
 
@@ -1244,6 +1352,35 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                               alt="Host upload"
                               className="max-h-52 w-full object-cover rounded"
                             />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Attached Drafted 3D Plan Card */}
+                      {selectedFounderTicket.draftedPlan && (
+                        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3.5 shadow-2xs space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-emerald-950 flex items-center gap-1.5">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                              Interactive 3D Floor Plan Attached
+                            </span>
+                            <span className="text-[9.5px] font-mono text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded border border-emerald-200">
+                              Verified & Active
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] text-emerald-900 bg-white/70 p-2.5 rounded-lg border border-emerald-200">
+                            <span className="font-medium">
+                              {selectedFounderTicket.draftedPlan.rooms?.filter((r: any) => r.type === "bedroom").length || 2} BHK ·{" "}
+                              {selectedFounderTicket.draftedPlan.rooms?.length || 4} Rooms Total
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleOpenStudio}
+                              className="inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-800 hover:text-emerald-950 hover:underline"
+                            >
+                              Open in Real Studio ➔
+                            </button>
                           </div>
                         </div>
                       )}
@@ -1308,8 +1445,9 @@ export function SupportDemoPage({ onExit }: { onExit: () => void }) {
                         type="button"
                         onClick={handleOpenStudio}
                         className="flex items-center gap-1 rounded-lg border border-amber-400 bg-amber-50 px-2.5 py-1 text-[10.5px] font-semibold text-amber-950 hover:bg-amber-100 transition shadow-2xs"
+                        title="Redirects to real existing Studio with host sketch docked in Picture-in-Picture"
                       >
-                        ✏️ Draft 3D Plan in Studio
+                        ✏️ Draft in Real Studio (Redirect)
                       </button>
                     </div>
 
